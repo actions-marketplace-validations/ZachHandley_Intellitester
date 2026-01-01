@@ -1,0 +1,59 @@
+name: Variable Interpolation Example
+platform: web
+
+# Define variables at the test level
+# Variables can reference {{uuid}} which generates a short UUID
+variables:
+  username: testuser_{{uuid}}
+  email: test_{{uuid}}@example.com
+  password: Test123!
+  domain: example.com
+
+steps:
+  # Navigate with variable interpolation
+  - type: navigate
+    value: https://{{domain}}/signup
+
+  # Input using variables
+  - type: input
+    target:
+      testId: username-input
+    value: "{{username}}"
+
+  - type: input
+    target:
+      testId: email-input
+    value: "{{email}}"
+
+  - type: input
+    target:
+      testId: password-input
+    value: "{{password}}"
+
+  - type: tap
+    target:
+      testId: submit-button
+
+  # Set a new variable during test execution
+  - type: setVar
+    name: welcomeMessage
+    value: "Welcome, {{username}}!"
+
+  # Use the newly set variable in assertions
+  - type: assert
+    target:
+      testId: success-message
+    value: "{{welcomeMessage}}"
+
+  # Navigate using multiple variables
+  - type: navigate
+    value: https://{{domain}}/user/{{username}}
+
+  # Another setVar example with uuid
+  - type: setVar
+    name: sessionId
+    value: session_{{uuid}}
+
+  # Screenshot with variable in name
+  - type: screenshot
+    name: user-{{username}}.png

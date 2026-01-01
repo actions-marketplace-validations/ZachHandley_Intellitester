@@ -33,6 +33,7 @@
     "@llamaindex/ollama": "^0.1.23",
     "@llamaindex/openai": "^0.4.22",
     "llamaindex": "^0.12.1",
+    "node-appwrite": "^21.0.0",
     "playwright": "^1.57.0",
     "yaml": "^2.8.2",
     "zod": "^4.1.13"

@@ -70,6 +70,39 @@ const screenshotActionSchema = z.object({
   name: z.string().optional(),
 });
 
+const setVarActionSchema = z.object({
+  type: z.literal('setVar'),
+  name: nonEmptyString,
+  value: z.string().optional(),
+  from: z.enum(['response', 'element', 'email']).optional(),
+  path: z.string().optional(),
+  pattern: z.string().optional(),
+});
+
+const emailWaitForActionSchema = z.object({
+  type: z.literal('email.waitFor'),
+  mailbox: nonEmptyString,
+  timeout: z.number().int().positive().optional(),
+  subjectContains: z.string().optional(),
+});
+
+const emailExtractCodeActionSchema = z.object({
+  type: z.literal('email.extractCode'),
+  saveTo: nonEmptyString,
+  pattern: z.string().optional(),
+});
+
+const emailExtractLinkActionSchema = z.object({
+  type: z.literal('email.extractLink'),
+  saveTo: nonEmptyString,
+  pattern: z.string().optional(),
+});
+
+const emailClearActionSchema = z.object({
+  type: z.literal('email.clear'),
+  mailbox: nonEmptyString,
+});
+
 export const ActionSchema = z.discriminatedUnion('type', [
   navigateActionSchema,
   tapActionSchema,
@@ -78,6 +111,11 @@ export const ActionSchema = z.discriminatedUnion('type', [
   waitActionSchema,
   scrollActionSchema,
   screenshotActionSchema,
+  setVarActionSchema,
+  emailWaitForActionSchema,
+  emailExtractCodeActionSchema,
+  emailExtractLinkActionSchema,
+  emailClearActionSchema,
 ]);
 
 const defaultsSchema = z.object({
@@ -90,6 +128,9 @@ const webConfigSchema = z.object({
   browser: z.string().trim().optional(),
   headless: z.boolean().optional(),
   timeout: z.number().int().positive().optional(),
+  // Remote browser support
+  wsEndpoint: z.string().url().optional(),
+  cdpEndpoint: z.string().url().optional(),
 });
 
 const androidConfigSchema = z.object({
@@ -147,6 +188,7 @@ export const TestConfigSchema = z.object({
 export const TestDefinitionSchema = z.object({
   name: nonEmptyString,
   platform: z.enum(['web', 'android', 'ios']),
+  variables: z.record(z.string(), z.string()).optional(),
   config: TestConfigSchema.optional(),
   steps: z.array(ActionSchema).min(1),
 });

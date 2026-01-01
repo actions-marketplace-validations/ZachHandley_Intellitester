@@ -30,6 +30,20 @@ function formatActionName(step: StepResult, index: number): string {
       return `step-${index + 1}: scroll ${action.direction ?? 'down'}`;
     case 'screenshot':
       return `step-${index + 1}: screenshot`;
+    case 'setVar':
+      return `step-${index + 1}: set variable ${action.name}`;
+    case 'email.waitFor':
+      return `step-${index + 1}: wait for email`;
+    case 'email.extractCode':
+      return `step-${index + 1}: extract code from email`;
+    case 'email.extractLink':
+      return `step-${index + 1}: extract link from email`;
+    case 'email.clear':
+      return `step-${index + 1}: clear email`;
+    default: {
+      const exhaustiveCheck: never = action;
+      return `step-${index + 1}: unknown action`;
+    }
   }
 }
 

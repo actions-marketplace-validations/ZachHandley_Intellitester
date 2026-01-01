@@ -20,6 +20,9 @@ importers:
       llamaindex:
         specifier: ^0.12.1
         version: 0.12.1(tree-sitter@0.22.4)(web-tree-sitter@0.24.7)(zod@4.1.13)
+      node-appwrite:
+        specifier: ^21.0.0
+        version: 21.1.0
       playwright:
         specifier: ^1.57.0
         version: 1.57.0
@@ -1670,6 +1673,12 @@ packages:
   node-addon-api@8.5.0:
     resolution: {integrity: sha512-/bRZty2mXUIFY/xU5HLvveNHlswNJej+RnxBjOMkidWfwZzgTbPG1E3K5TOxRLOR+5hX7bSofy8yf1hZevMS8A==}
     engines: {node: ^18 || ^20 || >= 21}
+
+  node-appwrite@21.1.0:
+    resolution: {integrity: sha512-HRK5BzN19vgvaH/EeNsigK24t4ngJ1AoiltK5JtahxP6uyMRztzkD8cXP+z9jj/xOjz7ySfQ9YypNyhNr6zVkA==}
+
+  node-fetch-native-with-agent@1.7.2:
+    resolution: {integrity: sha512-5MaOOCuJEvcckoz7/tjdx1M6OusOY6Xc5f459IaruGStWnKzlI1qpNgaAwmn4LmFYcsSlj+jBMk84wmmRxfk5g==}
 
   node-fetch-native@1.6.7:
     resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
@@ -4217,6 +4226,12 @@ snapshots:
       '@types/nlcst': 2.0.3
 
   node-addon-api@8.5.0: {}
+
+  node-appwrite@21.1.0:
+    dependencies:
+      node-fetch-native-with-agent: 1.7.2
+
+  node-fetch-native-with-agent@1.7.2: {}
 
   node-fetch-native@1.6.7: {}
 

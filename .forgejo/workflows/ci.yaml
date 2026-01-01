@@ -1,0 +1,270 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10'
+
+jobs:
+  # ===========================================
+  # Lint
+  # ===========================================
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Configure npm auth
+        run: |
+          echo "//forge.blackleafdigital.com/api/packages/blackleafdigital/npm/:_authToken=${{ secrets.FORGEJO_ACTIONS_TOKEN }}" >> ~/.npmrc
+
+      - name: Restore cache
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: restore
+          key: pnpm-lint-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Save cache
+        if: always()
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: save
+          key: pnpm-lint-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+  # ===========================================
+  # Type Check
+  # ===========================================
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Configure npm auth
+        run: |
+          echo "//forge.blackleafdigital.com/api/packages/blackleafdigital/npm/:_authToken=${{ secrets.FORGEJO_ACTIONS_TOKEN }}" >> ~/.npmrc
+
+      - name: Restore cache
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: restore
+          key: pnpm-typecheck-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Save cache
+        if: always()
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: save
+          key: pnpm-typecheck-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+  # ===========================================
+  # Build
+  # ===========================================
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Configure npm auth
+        run: |
+          echo "//forge.blackleafdigital.com/api/packages/blackleafdigital/npm/:_authToken=${{ secrets.FORGEJO_ACTIONS_TOKEN }}" >> ~/.npmrc
+
+      - name: Restore cache
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: restore
+          key: pnpm-build-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Save cache
+        if: always()
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: save
+          key: pnpm-build-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+  # ===========================================
+  # Test
+  # ===========================================
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: Configure npm auth
+        run: |
+          echo "//forge.blackleafdigital.com/api/packages/blackleafdigital/npm/:_authToken=${{ secrets.FORGEJO_ACTIONS_TOKEN }}" >> ~/.npmrc
+
+      - name: Restore cache
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: restore
+          key: pnpm-test-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
+
+      - name: Save cache
+        if: always()
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: save
+          key: pnpm-test-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.local/share/pnpm/store
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
+
+  # ===========================================
+  # Trigger Publish Workflow (tags only)
+  # ===========================================
+  trigger-publish:
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, build, test]
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    steps:
+      - name: Trigger publish workflow
+        run: |
+          VERSION="${{ github.ref_name }}"
+          echo "Triggering publish workflow for version: ${VERSION}"
+
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.FORGEJO_ACTIONS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            "https://forge.blackleafdigital.com/api/v1/repos/${{ github.repository }}/actions/workflows/publish.yaml/dispatches" \
+            -d "{\"ref\": \"main\", \"inputs\": {\"version\": \"${VERSION}\"}}"
+
+          echo "Publish workflow triggered successfully"
+
+  # ===========================================
+  # Cache Cleanup
+  # ===========================================
+  cache-cleanup:
+    name: Cleanup Old Caches
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, build, test]
+    if: always()
+    steps:
+      - name: Cleanup old caches
+        uses: https://forge.blackleafdigital.com/BlackLeafDigital/actions/s3-cache@main
+        with:
+          mode: cleanup
+          max-age-days: '30'
+          keep-latest: '5'
+          bucket: ${{ secrets.S3_BUCKET }}
+          endpoint: https://${{ secrets.S3_ENDPOINT }}
+          region: ${{ secrets.S3_REGION }}
+          access-key: ${{ secrets.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_ACCESS_SECRET }}
