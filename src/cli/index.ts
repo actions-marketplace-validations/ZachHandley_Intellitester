@@ -649,6 +649,7 @@ const runWorkflowCommand = async (file: string, options: RunOptions): Promise<vo
     interactive: options.interactive,
     debug: options.debug,
     aiConfig: config?.ai,
+    webServer: config?.webServer,
   });
 
   // Print results

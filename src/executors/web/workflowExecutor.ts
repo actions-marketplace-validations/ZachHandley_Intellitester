@@ -22,7 +22,7 @@ import {
 } from '../../integrations/appwrite';
 import type { TestContext } from '../../integrations/appwrite/types';
 import { startTrackingServer, type TrackingServer } from '../../tracking';
-import { startWebServer, killServer, type BrowserName, type StepResult } from './playwrightExecutor';
+import { startWebServer, killServer, type BrowserName, type StepResult, type WebServerConfig } from './playwrightExecutor';
 import type { AIConfig } from '../../ai/types';
 import { loadCleanupHandlers, executeCleanup } from '../../core/cleanup/index.js';
 import type { CleanupConfig } from '../../core/cleanup/types.js';
@@ -34,6 +34,7 @@ export interface WorkflowOptions {
   interactive?: boolean;
   debug?: boolean;
   aiConfig?: AIConfig;
+  webServer?: WebServerConfig;
 }
 
 export interface WorkflowWithContextOptions extends WorkflowOptions {
@@ -857,13 +858,16 @@ export async function runWorkflow(
     process.env.INTELLITESTER_TRACK_URL = `http://localhost:${trackingServer.port}`;
   }
 
-  // 3. Start web server if configured
+  // 3. Start web server if configured (workflow config takes precedence over global)
   let serverProcess: ChildProcess | null = null;
-  if (workflow.config?.webServer) {
+  const webServerConfig = workflow.config?.webServer ?? options.webServer;
+  if (webServerConfig) {
     try {
+      // Use workflow dir for workflow-defined webServer, process.cwd() for global config
+      const serverCwd = workflow.config?.webServer ? workflowDir : process.cwd();
       serverProcess = await startWebServer({
-        ...workflow.config.webServer,
-        cwd: workflowDir,
+        ...webServerConfig,
+        cwd: serverCwd,
       });
     } catch (error) {
       console.error('Failed to start web server:', error);
