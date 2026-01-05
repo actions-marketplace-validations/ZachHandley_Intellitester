@@ -282,6 +282,7 @@ const collectYamlFiles = async (target: string): Promise<string[]> => {
 /**
  * Auto-discover test files in the tests/ directory.
  * Returns files grouped by type: pipelines first, then workflows, then individual tests.
+ * Tests that are referenced by workflows are excluded from standalone test list.
  */
 const discoverTestFiles = async (testsDir: string = 'tests'): Promise<{
   pipelines: string[];
@@ -298,7 +299,7 @@ const discoverTestFiles = async (testsDir: string = 'tests'): Promise<{
 
   const pipelines: string[] = [];
   const workflows: string[] = [];
-  const tests: string[] = [];
+  const allTests: string[] = [];
 
   for (const file of allFiles) {
     const name = path.basename(file).toLowerCase();
@@ -307,11 +308,61 @@ const discoverTestFiles = async (testsDir: string = 'tests'): Promise<{
     } else if (name.endsWith('.workflow.yaml') || name.endsWith('.workflow.yml')) {
       workflows.push(file);
     } else if (name.endsWith('.test.yaml') || name.endsWith('.test.yml')) {
-      tests.push(file);
+      allTests.push(file);
     }
   }
 
-  return { pipelines, workflows, tests };
+  const { parse } = await import('yaml');
+
+  // Parse pipelines to find workflows they reference
+  const workflowsInPipelines = new Set<string>();
+  for (const pipelineFile of pipelines) {
+    try {
+      const content = await fs.readFile(pipelineFile, 'utf8');
+      const pipeline = parse(content);
+      const pipelineDir = path.dirname(pipelineFile);
+
+      if (pipeline?.workflows && Array.isArray(pipeline.workflows)) {
+        for (const workflowRef of pipeline.workflows) {
+          if (workflowRef?.file) {
+            const absoluteWorkflowPath = path.resolve(pipelineDir, workflowRef.file);
+            workflowsInPipelines.add(absoluteWorkflowPath);
+          }
+        }
+      }
+    } catch {
+      // If we can't parse a pipeline, just continue
+    }
+  }
+
+  // Filter out workflows that are part of pipelines
+  const standaloneWorkflows = workflows.filter(wf => !workflowsInPipelines.has(wf));
+
+  // Parse workflows to find tests they reference, so we don't run them twice
+  const testsInWorkflows = new Set<string>();
+  for (const workflowFile of workflows) {
+    try {
+      const content = await fs.readFile(workflowFile, 'utf8');
+      const workflow = parse(content);
+      const workflowDir = path.dirname(workflowFile);
+
+      if (workflow?.tests && Array.isArray(workflow.tests)) {
+        for (const testRef of workflow.tests) {
+          if (testRef?.file) {
+            const absoluteTestPath = path.resolve(workflowDir, testRef.file);
+            testsInWorkflows.add(absoluteTestPath);
+          }
+        }
+      }
+    } catch {
+      // If we can't parse a workflow, just continue
+    }
+  }
+
+  // Filter out tests that are part of workflows
+  const standaloneTests = allTests.filter(test => !testsInWorkflows.has(test));
+
+  return { pipelines, workflows: standaloneWorkflows, tests: standaloneTests };
 };
 
 const writeFileIfMissing = async (filePath: string, contents: string): Promise<void> => {
