@@ -229,6 +229,18 @@ const platformsSchema = z.object({
   ios: iosConfigSchema.optional(),
 });
 
+// Preview configuration for --preview flag
+export const previewConfigSchema = z.object({
+  build: z.object({
+    command: z.string().optional(),
+  }).optional(),
+  preview: z.object({
+    command: z.string().optional(),
+  }).optional(),
+  url: z.string().url().optional(),
+  timeout: z.number().int().positive().optional(),
+});
+
 export const TestConfigSchema = z.object({
   defaults: defaultsSchema.optional(),
   web: webConfigSchema.optional(),
@@ -255,5 +267,6 @@ export const IntellitesterConfigSchema = z.object({
   appwrite: appwriteConfigSchema.optional(),
   cleanup: cleanupConfigSchema.optional(),
   webServer: webServerSchema.optional(),
+  preview: previewConfigSchema.optional(),
   secrets: z.record(z.string(), z.string().trim()).optional(),
 });

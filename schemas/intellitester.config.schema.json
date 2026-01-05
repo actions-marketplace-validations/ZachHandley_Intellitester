@@ -366,6 +366,46 @@
         }
       }
     },
+    "preview": {
+      "type": "object",
+      "description": "Configuration for the --preview flag (build and serve production build)",
+      "properties": {
+        "build": {
+          "type": "object",
+          "description": "Build configuration",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Command to build the project",
+              "examples": ["pnpm build", "npm run build", "yarn build", "bun run build"]
+            }
+          }
+        },
+        "preview": {
+          "type": "object",
+          "description": "Preview server configuration",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Command to start the preview server after build",
+              "examples": ["pnpm preview", "npm run preview", "serve ./dist", "npx serve build"]
+            }
+          }
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to wait for before starting tests",
+          "examples": ["http://localhost:4321", "http://localhost:3000"]
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Timeout in milliseconds to wait for preview server",
+          "default": 60000
+        }
+      }
+    },
     "secrets": {
       "type": "object",
       "description": "Secret values that can be referenced in tests (prefer environment variables)",

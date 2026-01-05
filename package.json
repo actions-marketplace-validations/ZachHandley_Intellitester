@@ -1,6 +1,6 @@
 {
   "name": "intellitester",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Uses AI + iOS or Android emulators / web browsers to create automated test suites using simple instructions",
   "type": "module",
   "main": "./dist/index.cjs",
