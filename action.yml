@@ -80,12 +80,6 @@ runs:
           echo "//${HOST}:_authToken=${{ inputs.npm-token }}" >> ~/.npmrc
         fi
 
-    - name: Install Intellitester
-      shell: bash
-      run: |
-        set -e
-        npm install -g intellitester
-
     - name: Create .env file
       if: inputs.env-file != ''
       shell: bash
@@ -94,6 +88,41 @@ runs:
         cat > .env << 'ENVEOF'
         ${{ inputs.env-file }}
         ENVEOF
+
+    - name: Ensure intellitester and playwright are installed
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -e
+        PM="${{ inputs.package-manager }}"
+
+        # Check if playwright is in package.json, add if not
+        if ! grep -q '"playwright"' package.json 2>/dev/null; then
+          echo "Adding playwright as devDependency..."
+          if [ "$PM" = "pnpm" ]; then
+            pnpm add -D playwright@latest
+          elif [ "$PM" = "yarn" ]; then
+            yarn add -D playwright@latest
+          elif [ "$PM" = "bun" ]; then
+            bun add -D playwright@latest
+          else
+            npm install -D playwright@latest
+          fi
+        fi
+
+        # Check if intellitester is in package.json, add if not
+        if ! grep -q '"intellitester"' package.json 2>/dev/null; then
+          echo "Adding intellitester as devDependency..."
+          if [ "$PM" = "pnpm" ]; then
+            pnpm add -D intellitester@latest
+          elif [ "$PM" = "yarn" ]; then
+            yarn add -D intellitester@latest
+          elif [ "$PM" = "bun" ]; then
+            bun add -D intellitester@latest
+          else
+            npm install -D intellitester@latest
+          fi
+        fi
 
     - name: Install dependencies
       shell: bash
@@ -123,5 +152,5 @@ runs:
         fi
         ARGS="$ARGS --browser ${{ inputs.browser }}"
 
-        echo "Running: intellitester run $ARGS"
-        intellitester run $ARGS
+        echo "Running: npx intellitester run $ARGS"
+        npx intellitester run $ARGS
