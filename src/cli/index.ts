@@ -799,7 +799,9 @@ const main = async (): Promise<void> => {
           for (const pipeline of discovered.pipelines) {
             try {
               await runPipelineCommand(pipeline, runOpts);
-            } catch {
+            } catch (error) {
+              console.error(`\n❌ Pipeline failed: ${path.basename(pipeline)}`);
+              console.error(`   ${error instanceof Error ? error.message : String(error)}\n`);
               failed = true;
             }
           }
@@ -808,7 +810,9 @@ const main = async (): Promise<void> => {
           for (const workflow of discovered.workflows) {
             try {
               await runWorkflowCommand(workflow, runOpts);
-            } catch {
+            } catch (error) {
+              console.error(`\n❌ Workflow failed: ${path.basename(workflow)}`);
+              console.error(`   ${error instanceof Error ? error.message : String(error)}\n`);
               failed = true;
             }
           }
@@ -823,7 +827,9 @@ const main = async (): Promise<void> => {
                 interactive: options.interactive,
                 debug: options.debug,
               });
-            } catch {
+            } catch (error) {
+              console.error(`\n❌ Test failed: ${path.basename(test)}`);
+              console.error(`   ${error instanceof Error ? error.message : String(error)}\n`);
               failed = true;
             }
           }

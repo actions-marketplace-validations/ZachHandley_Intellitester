@@ -238,7 +238,7 @@ export async function runPipeline(
 
   // 6. Launch browser ONCE for entire pipeline
   const browserName = options.browser ?? pipeline.config?.web?.browser ?? 'chromium';
-  const headless = options.headed ? false : pipeline.config?.web?.headless ?? true;
+  const headless = options.headed === true ? false : (pipeline.config?.web?.headless ?? true);
   const browser = await getBrowser(browserName).launch({ headless });
   const browserContext = await browser.newContext();
   const page = await browserContext.newPage();

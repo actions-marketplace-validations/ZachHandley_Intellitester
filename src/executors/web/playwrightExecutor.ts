@@ -695,7 +695,7 @@ export const runWebTest = async (
   }
 
   const browserName = options.browser ?? 'chromium';
-  const headless = options.headed ? false : true;
+  const headless = !(options.headed ?? false);
   const screenshotDir = options.screenshotDir ?? defaultScreenshotDir;
   const defaultTimeout = options.defaultTimeoutMs ?? 30000;
 
@@ -724,7 +724,9 @@ export const runWebTest = async (
   process.on('SIGTERM', cleanup);
 
   // Launch local browser
+  console.log(`Launching ${browserName}${headless ? ' (headless)' : ' (visible)'}...`);
   const browser = await getBrowser(browserName).launch({ headless });
+  console.log(`Browser launched successfully`);
 
   const browserContext = await browser.newContext();
   const page = await browserContext.newPage();
