@@ -44,6 +44,20 @@ function formatActionName(step: StepResult, index: number): string {
       return `step-${index + 1}: verify email via Appwrite`;
     case 'debug':
       return `step-${index + 1}: debug breakpoint`;
+    case 'clear':
+      return `step-${index + 1}: clear input`;
+    case 'hover':
+      return `step-${index + 1}: hover`;
+    case 'select':
+      return `step-${index + 1}: select ${action.value}`;
+    case 'check':
+      return `step-${index + 1}: check`;
+    case 'uncheck':
+      return `step-${index + 1}: uncheck`;
+    case 'press':
+      return `step-${index + 1}: press ${action.key}`;
+    case 'focus':
+      return `step-${index + 1}: focus`;
     default: {
       const _exhaustiveCheck: never = action;
       return `step-${index + 1}: unknown action`;
