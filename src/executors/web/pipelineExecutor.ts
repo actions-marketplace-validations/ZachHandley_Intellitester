@@ -241,7 +241,7 @@ export async function runPipeline(
   // 6. Launch browser ONCE for entire pipeline
   const browserName = options.browser ?? pipeline.config?.web?.browser ?? 'chromium';
   const headless = options.headed === true ? false : (pipeline.config?.web?.headless ?? true);
-  const browser = await getBrowser(browserName).launch(getBrowserLaunchOptions({ headless }));
+  const browser = await getBrowser(browserName).launch(getBrowserLaunchOptions({ headless, browser: browserName }));
   const browserContext = await browser.newContext();
   const page = await browserContext.newPage();
   page.setDefaultTimeout(30000);

@@ -1032,7 +1032,7 @@ export async function runWorkflow(
   const browserName = options.browser ?? workflow.config?.web?.browser ?? 'chromium';
   const headless = options.headed === true ? false : (workflow.config?.web?.headless ?? true);
   console.log(`Launching ${browserName}${headless ? ' (headless)' : ' (visible)'}...`);
-  const browser = await getBrowser(browserName).launch(getBrowserLaunchOptions({ headless }));
+  const browser = await getBrowser(browserName).launch(getBrowserLaunchOptions({ headless, browser: browserName }));
   console.log(`Browser launched successfully`);
   const browserContext = await browser.newContext();
   const page = await browserContext.newPage();

@@ -870,7 +870,7 @@ export const runWebTest = async (
 
   // Launch local browser
   console.log(`Launching ${browserName}${headless ? ' (headless)' : ' (visible)'}...`);
-  const browser = await getBrowser(browserName).launch(getBrowserLaunchOptions({ headless }));
+  const browser = await getBrowser(browserName).launch(getBrowserLaunchOptions({ headless, browser: browserName }));
   console.log(`Browser launched successfully`);
 
   const browserContext = await browser.newContext();

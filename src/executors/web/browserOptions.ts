@@ -3,37 +3,65 @@
  * These settings help with slow page loads and work well in both local and CI/Docker environments
  */
 
+export type BrowserName = 'chromium' | 'firefox' | 'webkit';
+
 export interface BrowserLaunchOptions {
   headless: boolean;
+  browser?: BrowserName;
 }
 
 /**
  * Get optimized launch options for Playwright browsers
+ * Returns browser-specific options to avoid compatibility issues
  */
 export function getBrowserLaunchOptions(options: BrowserLaunchOptions) {
-  return {
-    headless: options.headless,
-    args: [
-      // Shared memory - critical for Docker/CI, harmless locally
-      '--disable-dev-shm-usage',
+  const { headless, browser } = options;
 
-      // GPU acceleration - not needed in headless mode
-      '--disable-gpu',
+  // Chromium-specific flags (not supported by Firefox/WebKit)
+  if (browser === 'chromium' || !browser) {
+    return {
+      headless,
+      args: [
+        // Shared memory - critical for Docker/CI, harmless locally
+        '--disable-dev-shm-usage',
 
-      // Reduce overhead
-      '--disable-extensions',
+        // GPU acceleration - not needed in headless mode
+        '--disable-gpu',
 
-      // Prevent JavaScript throttling (helps with slow page loads)
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
+        // Reduce overhead
+        '--disable-extensions',
 
-      // Process isolation - reduces overhead for testing
-      '--disable-features=IsolateOrigins,site-per-process',
+        // Prevent JavaScript throttling (helps with slow page loads)
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
 
-      // Networking tweaks
-      '--disable-features=VizDisplayCompositor',
-      '--disable-blink-features=AutomationControlled',
-    ],
-  };
+        // Process isolation - reduces overhead for testing
+        '--disable-features=IsolateOrigins,site-per-process',
+
+        // Networking tweaks
+        '--disable-features=VizDisplayCompositor',
+        '--disable-blink-features=AutomationControlled',
+      ],
+    };
+  }
+
+  // Firefox-specific optimizations (via firefoxUserPrefs)
+  if (browser === 'firefox') {
+    return {
+      headless,
+      firefoxUserPrefs: {
+        // Enable JIT (disabled in automation mode by default, causes 2-4x JS slowdown)
+        'javascript.options.jit': true,
+        // Disable fission for stability/speed
+        'fission.autostart': false,
+        // Disable hardware acceleration overhead in headless
+        'layers.acceleration.disabled': true,
+        'gfx.webrender.all': false,
+      },
+    };
+  }
+
+  // WebKit/Safari - minimal options (no Chrome flags supported)
+  return { headless };
 }
