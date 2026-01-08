@@ -1,0 +1,36 @@
+name: Create GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.2.23)'
+        required: true
+        type: string
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: Intellitester ${{ inputs.version }}
+          generate_release_notes: true
+
+      - name: Update major version tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          MAJOR="${VERSION%%.*}"  # v0.2.23 -> v0
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -fa "${MAJOR}" -m "Update ${MAJOR} to ${VERSION}"
+          git push origin "${MAJOR}" --force

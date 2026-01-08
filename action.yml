@@ -39,7 +39,7 @@ inputs:
     required: false
     default: ''
   playwright-browsers:
-    description: 'Playwright browser to install (chromium, firefox, webkit)'
+    description: 'Playwright browsers to install (chromium, firefox, webkit)'
     required: false
     default: 'chromium'
 
@@ -52,105 +52,106 @@ runs:
         node-version: ${{ inputs.node-version }}
 
     - name: Install package manager
+      if: inputs.package-manager != 'npm'
       shell: bash
-      run: |
-        set -e
-        if [ "${{ inputs.package-manager }}" = "pnpm" ]; then
-          npm install -g pnpm@latest
-        elif [ "${{ inputs.package-manager }}" = "yarn" ]; then
-          npm install -g yarn
-        elif [ "${{ inputs.package-manager }}" = "bun" ]; then
-          npm install -g bun
-        fi
+      run: npm install -g ${{ inputs.package-manager }}@latest
 
     - name: Configure npm registry
       if: inputs.npm-registry != ''
       shell: bash
+      env:
+        REGISTRY: ${{ inputs.npm-registry }}
+        NPM_TOKEN: ${{ inputs.npm-token }}
       run: |
-        set -e
-        REGISTRY="${{ inputs.npm-registry }}"
+        # Extract org for scoped registry (GitHub/GitLab package style URLs)
         if [[ "$REGISTRY" == *"/npm/"* ]]; then
           ORG=$(echo "$REGISTRY" | sed -n 's|.*/packages/\([^/]*\)/npm/.*|\1|p')
-          if [ -n "$ORG" ]; then
-            echo "@${ORG}:registry=${REGISTRY}" >> ~/.npmrc
-          fi
+          [[ -n "$ORG" ]] && echo "@${ORG}:registry=${REGISTRY}" >> ~/.npmrc
         fi
-        if [ -n "${{ inputs.npm-token }}" ]; then
-          HOST=$(echo "$REGISTRY" | sed 's|https\?://||' | sed 's|/$||')
-          echo "//${HOST}:_authToken=${{ inputs.npm-token }}" >> ~/.npmrc
+        # Add auth token if provided
+        if [[ -n "$NPM_TOKEN" ]]; then
+          HOST=$(echo "$REGISTRY" | sed 's|https\?://||; s|/$||')
+          echo "//${HOST}:_authToken=${NPM_TOKEN}" >> ~/.npmrc
         fi
 
     - name: Create .env file
       if: inputs.env-file != ''
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: |
-        cat > .env << 'ENVEOF'
-        ${{ inputs.env-file }}
-        ENVEOF
+      env:
+        ENV_CONTENT: ${{ inputs.env-file }}
+      run: printf '%s\n' "$ENV_CONTENT" > .env
 
-    - name: Ensure intellitester and playwright are installed
+    - name: Ensure playwright and intellitester installed
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      env:
+        PM: ${{ inputs.package-manager }}
+        ACTION_REF: ${{ github.action_ref }}
       run: |
-        set -e
-        PM="${{ inputs.package-manager }}"
-
-        # Check if playwright is in package.json, add if not
-        if ! grep -q '"playwright"' package.json 2>/dev/null; then
-          echo "Adding playwright as devDependency..."
-          if [ "$PM" = "pnpm" ]; then
-            pnpm add -D playwright@latest
-          elif [ "$PM" = "yarn" ]; then
-            yarn add -D playwright@latest
-          elif [ "$PM" = "bun" ]; then
-            bun add -D playwright@latest
-          else
-            npm install -D playwright@latest
-          fi
-        fi
-
-        # Check if intellitester is in package.json, add if not
-        if ! grep -q '"intellitester"' package.json 2>/dev/null; then
-          echo "Adding intellitester as devDependency..."
-          if [ "$PM" = "pnpm" ]; then
-            pnpm add -D intellitester@latest
-          elif [ "$PM" = "yarn" ]; then
-            yarn add -D intellitester@latest
-          elif [ "$PM" = "bun" ]; then
-            bun add -D intellitester@latest
-          else
-            npm install -D intellitester@latest
-          fi
-        fi
+        add_dev() {
+          case "$PM" in
+            pnpm) pnpm add -D "$1" ;;
+            yarn) yarn add -D "$1" ;;
+            bun)  bun add -D "$1" ;;
+            *)    npm install -D "$1" ;;
+          esac
+        }
+        # Get version from action ref (e.g., v0.2.23 -> 0.2.23)
+        ACTION_VERSION="${ACTION_REF#v}"
+        grep -q '"playwright"' package.json 2>/dev/null || add_dev playwright@latest
+        grep -q '"intellitester"' package.json 2>/dev/null || add_dev "intellitester@${ACTION_VERSION:-latest}"
 
     - name: Install dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: |
-        set -e
-        ${{ inputs.package-manager }} install
+      run: ${{ inputs.package-manager }} install
 
-    - name: Install Playwright browsers
+    - name: Get Playwright version
+      id: pw-version
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
-        set -e
-        npx playwright install --with-deps ${{ inputs.playwright-browsers }}
+        # Try lockfiles first, fall back to installed package
+        if [[ -f pnpm-lock.yaml ]]; then
+          VER=$(grep -A2 "playwright:" pnpm-lock.yaml | grep "version:" | head -1 | sed "s/.*version: '\{0,1\}\([^']*\)'\{0,1\}/\1/")
+        elif [[ -f package-lock.json ]]; then
+          VER=$(node -e "console.log(require('./package-lock.json').packages?.['node_modules/playwright']?.version || '')")
+        elif [[ -f yarn.lock ]]; then
+          VER=$(grep -A1 '^"*playwright@' yarn.lock | grep "version" | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+        elif [[ -f bun.lockb ]]; then
+          VER=$(node -e "console.log(require('./node_modules/playwright/package.json').version)" 2>/dev/null || echo "")
+        fi
+        VER=${VER:-$(node -e "console.log(require('./node_modules/playwright/package.json').version)" 2>/dev/null || echo "latest")}
+        echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw-cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/Library/Caches/ms-playwright
+          ~/AppData/Local/ms-playwright
+        key: playwright-${{ runner.os }}-${{ steps.pw-version.outputs.version }}-${{ inputs.playwright-browsers }}
+
+    - name: Install Playwright browsers
+      if: steps.pw-cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx playwright install --with-deps ${{ inputs.playwright-browsers }}
+
+    - name: Install Playwright system deps (cached browsers)
+      if: steps.pw-cache.outputs.cache-hit == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npx playwright install-deps ${{ inputs.playwright-browsers }}
 
     - name: Run Intellitester
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
-        set -e
-        ARGS=""
-        if [ -n "${{ inputs.test-file }}" ]; then
-          ARGS="${{ inputs.test-file }}"
-        fi
-        if [ "${{ inputs.preview }}" = "true" ]; then
-          ARGS="$ARGS --preview"
-        fi
-        ARGS="$ARGS --browser ${{ inputs.browser }}"
-
-        echo "Running: npx intellitester run $ARGS"
-        npx intellitester run $ARGS
+        npx intellitester run \
+          ${{ inputs.test-file }} \
+          ${{ inputs.preview == 'true' && '--preview' || '' }} \
+          --browser ${{ inputs.browser }}
