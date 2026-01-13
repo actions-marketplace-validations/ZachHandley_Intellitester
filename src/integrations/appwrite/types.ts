@@ -1,6 +1,7 @@
 export interface TrackedResource {
   type: 'row' | 'file' | 'user' | 'team' | 'membership' | 'message';
   id: string;
+  [key: string]: unknown;
   // For rows
   databaseId?: string;
   tableId?: string;

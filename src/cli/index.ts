@@ -442,6 +442,8 @@ const runTestCommand = async (
     noServer?: boolean;
     interactive?: boolean;
     debug?: boolean;
+    sessionId?: string;
+    trackDir?: string;
   },
 ): Promise<void> => {
   const absoluteTarget = path.resolve(target);
@@ -503,6 +505,8 @@ const runTestCommand = async (
     debug,
     interactive,
     aiConfig: interactive ? config?.ai : undefined,
+    sessionId: options.sessionId,
+    trackDir: options.trackDir,
   });
 
   for (const step of result.steps) {
@@ -597,6 +601,8 @@ interface RunOptions {
   browser?: BrowserName;
   interactive?: boolean;
   debug?: boolean;
+  sessionId?: string;
+  trackDir?: string;
 }
 
 const runWorkflowCommand = async (file: string, options: RunOptions): Promise<void> => {
@@ -650,6 +656,8 @@ const runWorkflowCommand = async (file: string, options: RunOptions): Promise<vo
     debug: options.debug,
     aiConfig: config?.ai,
     webServer: config?.webServer,
+    sessionId: options.sessionId,
+    trackDir: options.trackDir,
   });
 
   // Print results
@@ -724,6 +732,8 @@ const runPipelineCommand = async (file: string, options: RunOptions): Promise<vo
     browser: options.browser,
     interactive: options.interactive,
     debug: options.debug,
+    sessionId: options.sessionId,
+    trackDir: options.trackDir,
   });
 
   // Print results
@@ -794,6 +804,8 @@ const main = async (): Promise<void> => {
     .option('--no-server', 'Skip auto-starting web server')
     .option('-i, --interactive', 'Interactive mode - AI suggests fixes on failure')
     .option('--debug', 'Debug mode - verbose logging')
+    .option('--session-id <id>', 'Override test session ID (used for tracking/cleanup)')
+    .option('--track-dir <path>', 'Directory for tracking files (defaults to .intellitester/track)')
     .action(async (file: string | undefined, options: {
       visible?: boolean;
       browser?: string;
@@ -801,6 +813,8 @@ const main = async (): Promise<void> => {
       server?: boolean;
       interactive?: boolean;
       debug?: boolean;
+      sessionId?: string;
+      trackDir?: string;
     }) => {
       let previewCleanup: (() => void) | null = null;
 
@@ -821,6 +835,8 @@ const main = async (): Promise<void> => {
           browser,
           interactive: options.interactive,
           debug: options.debug,
+          sessionId: options.sessionId,
+          trackDir: options.trackDir,
         };
 
         // If no file specified, auto-discover tests
@@ -878,6 +894,8 @@ const main = async (): Promise<void> => {
                 noServer: !options.server,
                 interactive: options.interactive,
                 debug: options.debug,
+                sessionId: options.sessionId,
+                trackDir: options.trackDir,
               });
             } catch (error) {
               console.error(`\n❌ Test failed: ${path.basename(test)}`);
@@ -924,6 +942,8 @@ const main = async (): Promise<void> => {
           noServer: !options.server,
           interactive: options.interactive,
           debug: options.debug,
+          sessionId: options.sessionId,
+          trackDir: options.trackDir,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

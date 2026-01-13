@@ -23,7 +23,9 @@ import {
   APPWRITE_DELETE_PATTERNS,
 } from '../../integrations/appwrite';
 import type { TestContext } from '../../integrations/appwrite/types';
-import { startTrackingServer, type TrackingServer } from '../../tracking';
+import { startTrackingServer, type TrackingServer, initFileTracking, mergeFileTrackedResources } from '../../tracking';
+import { track as trackResource } from '../../integration/index.js';
+import type { TrackedResource as IntegrationTrackedResource } from '../../integration/index.js';
 import { startWebServer, killServer, type BrowserName, type StepResult, type WebServerConfig } from './playwrightExecutor';
 import type { AIConfig } from '../../ai/types';
 import { loadCleanupHandlers, executeCleanup } from '../../core/cleanup/index.js';
@@ -37,6 +39,8 @@ export interface WorkflowOptions {
   debug?: boolean;
   aiConfig?: AIConfig;
   webServer?: WebServerConfig;
+  sessionId?: string;
+  trackDir?: string;
 }
 
 export interface WorkflowWithContextOptions extends WorkflowOptions {
@@ -164,6 +168,28 @@ async function runTestInWorkflow(
     throw new Error('No usable selector found for locator');
   };
 
+  const buildTrackPayload = (
+    action: Action,
+    index: number,
+    stepExtras?: Record<string, unknown>
+  ): IntegrationTrackedResource | null => {
+    if (!('track' in action)) return null;
+    const track = (action as { track?: Record<string, unknown> }).track;
+    if (!track || typeof track !== 'object') return null;
+    if (typeof track.type !== 'string' || typeof track.id !== 'string') return null;
+
+    const { includeStepContext, ...rest } = track;
+    const payload: IntegrationTrackedResource = {
+      type: track.type,
+      id: track.id,
+      ...rest,
+    };
+    if (includeStepContext) {
+      payload.step = { index, ...action, ...stepExtras };
+    }
+    return payload;
+  };
+
   try {
     for (const [index, action] of test.steps.entries()) {
       if (debugMode) {
@@ -286,6 +312,10 @@ async function runTestInWorkflow(
             const filePath = path.join(screenshotDir, filename);
             await page.screenshot({ path: filePath, fullPage: true });
             results.push({ action, status: 'passed', screenshotPath: filePath });
+            const trackedPayload = buildTrackPayload(action, index, { screenshotPath: filePath });
+            if (trackedPayload) {
+              await trackResource(trackedPayload);
+            }
             continue;
           }
           case 'setVar': {
@@ -473,6 +503,10 @@ async function runTestInWorkflow(
                   const filePath = path.join(screenshotDir, filename);
                   await page.screenshot({ path: filePath, fullPage: true });
                   results.push({ action: nestedAction, status: 'passed', screenshotPath: filePath });
+                  const trackedPayload = buildTrackPayload(nestedAction, index, { screenshotPath: filePath });
+                  if (trackedPayload) {
+                    await trackResource(trackedPayload);
+                  }
                   break;
                 }
                 case 'fail': {
@@ -571,6 +605,10 @@ async function runTestInWorkflow(
                       const filePath = path.join(screenshotDir, filename);
                       await page.screenshot({ path: filePath, fullPage: true });
                       results.push({ action: nestedAction, status: 'passed', screenshotPath: filePath });
+                      const trackedPayload = buildTrackPayload(nestedAction, index, { screenshotPath: filePath });
+                      if (trackedPayload) {
+                        await trackResource(trackedPayload);
+                      }
                       break;
                     }
                     case 'wait': {
@@ -613,6 +651,13 @@ async function runTestInWorkflow(
                     default:
                       throw new Error(`Nested action type ${nestedAction.type} in waitForBranch not yet supported`);
                   }
+                  if (nestedAction.type !== 'screenshot') {
+                    const trackedPayload = buildTrackPayload(nestedAction, index);
+                    if (trackedPayload) {
+                      await trackResource(trackedPayload);
+                    }
+                  }
+
                   results.push({ action: nestedAction, status: 'passed' });
                 }
               } else if (typeof branch === 'object' && 'workflow' in branch) {
@@ -668,6 +713,11 @@ async function runTestInWorkflow(
           }
           default:
             throw new Error(`Unsupported action type: ${(action as Action).type}`);
+        }
+
+        const trackedPayload = buildTrackPayload(action, index);
+        if (trackedPayload) {
+          await trackResource(trackedPayload);
         }
 
         results.push({ action, status: 'passed' });
@@ -882,6 +932,7 @@ function inferCleanupConfig(config: WorkflowConfig | undefined): CleanupConfig |
   if (config.appwrite?.cleanup) {
     return {
       provider: 'appwrite',
+      scanUntracked: true,
       appwrite: {
         endpoint: config.appwrite.endpoint,
         projectId: config.appwrite.projectId,
@@ -1116,6 +1167,7 @@ export async function runWorkflowWithContext(
               sessionId,
               testStartTime,
               userId: executionContext.appwriteContext.userId,
+              userEmail: executionContext.appwriteContext.userEmail,
               providerConfig,
               cwd: process.cwd(),
               config: cleanupConfig,
@@ -1166,8 +1218,9 @@ export async function runWorkflow(
   options: WorkflowOptions = {}
 ): Promise<WorkflowResult> {
   const workflowDir = path.dirname(workflowFilePath);
-  const sessionId = crypto.randomUUID();
+  const sessionId = options.sessionId ?? crypto.randomUUID();
   const testStartTime = new Date().toISOString();
+  const cleanupConfig = inferCleanupConfig(workflow.config);
 
   // 1. Start tracking server
   let trackingServer: TrackingServer | null = null;
@@ -1183,6 +1236,18 @@ export async function runWorkflow(
     process.env.INTELLITESTER_SESSION_ID = sessionId;
     process.env.INTELLITESTER_TRACK_URL = `http://localhost:${trackingServer.port}`;
   }
+  const fileTracking = await initFileTracking({
+    sessionId,
+    cleanupConfig,
+    trackDir: options.trackDir,
+    providerConfig: workflow.config?.appwrite ? {
+      provider: 'appwrite',
+      endpoint: workflow.config.appwrite.endpoint,
+      projectId: workflow.config.appwrite.projectId,
+      apiKey: workflow.config.appwrite.apiKey,
+    } : undefined,
+  });
+  process.env.INTELLITESTER_TRACK_FILE = fileTracking.trackFile;
 
   // 3. Start web server if configured (workflow config takes precedence over global)
   let serverProcess: ChildProcess | null = null;
@@ -1191,8 +1256,17 @@ export async function runWorkflow(
     try {
       // Use workflow dir for workflow-defined webServer, process.cwd() for global config
       const serverCwd = workflow.config?.webServer ? workflowDir : process.cwd();
+      const requiresTrackingEnv = Boolean(
+        workflow.config?.appwrite?.cleanup || workflow.config?.appwrite?.cleanupOnFailure
+      );
+      const effectiveWebServerConfig = requiresTrackingEnv
+        ? { ...webServerConfig, reuseExistingServer: false }
+        : webServerConfig;
+      if (requiresTrackingEnv && webServerConfig.reuseExistingServer !== false) {
+        console.log('[Intellitester] Appwrite cleanup enabled; restarting server to inject tracking env.');
+      }
       serverProcess = await startWebServer({
-        ...webServerConfig,
+        ...effectiveWebServerConfig,
         cwd: serverCwd,
       });
     } catch (error) {
@@ -1207,6 +1281,8 @@ export async function runWorkflow(
     console.log('\n\nInterrupted - cleaning up...');
     killServer(serverProcess);
     if (trackingServer) await trackingServer.stop();
+    await fileTracking.stop();
+    delete process.env.INTELLITESTER_TRACK_FILE;
     process.exit(1);
   };
   process.on('SIGINT', signalCleanup);
@@ -1268,10 +1344,10 @@ export async function runWorkflow(
       }
     }
 
+    await mergeFileTrackedResources(fileTracking.trackFile, executionContext.appwriteContext);
+
     // 8. Cleanup resources using the extensible cleanup system
     let cleanupResult: { success: boolean; deleted: string[]; failed: string[] } | undefined;
-
-    const cleanupConfig = inferCleanupConfig(workflow.config);
 
     if (cleanupConfig) {
       // Determine if we should cleanup based on test status
@@ -1345,6 +1421,7 @@ export async function runWorkflow(
               sessionId,
               testStartTime,
               userId: executionContext.appwriteContext.userId,
+              userEmail: executionContext.appwriteContext.userEmail,
               providerConfig,
               cwd: process.cwd(),
               config: cleanupConfig,
@@ -1388,9 +1465,11 @@ export async function runWorkflow(
     if (trackingServer) {
       await trackingServer.stop();
     }
+    await fileTracking.stop();
 
     // Clean up env vars
     delete process.env.INTELLITESTER_SESSION_ID;
     delete process.env.INTELLITESTER_TRACK_URL;
+    delete process.env.INTELLITESTER_TRACK_FILE;
   }
 }

@@ -121,7 +121,9 @@ export async function executeCleanup(
     try {
       const untrackedResult = await provider.cleanupUntracked({
         testStartTime: options.testStartTime ?? new Date().toISOString(),
+        testStartTimeProvided: options.testStartTime !== undefined,
         userId: options.userId,
+        userEmail: options.userEmail,
         sessionId: options.sessionId,
       });
 
@@ -147,8 +149,13 @@ export async function executeCleanup(
   };
 
   // Save failed cleanups for retry if there were failures
-  if (failed.length > 0 && options.sessionId && options.providerConfig) {
+  if (failed.length > 0 && options.providerConfig) {
     try {
+      const persistenceId = options.sessionId
+        ?? options.userId
+        ?? options.userEmail
+        ?? `cleanup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+
       // Extract the resources that failed
       const failedResources = sorted.filter((resource) => {
         const resourceLabel = `${resource.type}:${resource.id}`;
@@ -157,7 +164,7 @@ export async function executeCleanup(
 
       await saveFailedCleanup(
         {
-          sessionId: options.sessionId,
+          sessionId: persistenceId,
           timestamp: new Date().toISOString(),
           resources: failedResources,
           providerConfig: options.providerConfig,

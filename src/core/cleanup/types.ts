@@ -7,7 +7,9 @@ export interface CleanupHandler {
 export interface CleanupUntrackedOptions {
   testStartTime: string;    // ISO timestamp when test started
   userId?: string;          // Test user ID to match
+  userEmail?: string;       // Test user email to match
   sessionId?: string;       // Session ID for logging
+  testStartTimeProvided?: boolean; // Indicates if testStartTime was explicitly provided
 }
 
 export interface CleanupUntrackedResult {
@@ -54,6 +56,7 @@ export interface ExecutorOptions {
   sessionId?: string;
   testStartTime?: string;   // When the test started (ISO timestamp)
   userId?: string;          // Test user ID for matching
+  userEmail?: string;       // Test user email for matching
   providerConfig?: {
     provider: string;
     [key: string]: unknown;

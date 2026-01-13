@@ -26,7 +26,7 @@ import {
   type WorkflowOptions,
 } from './workflowExecutor';
 import { createTestContext } from '../../integrations/appwrite';
-import { startTrackingServer, type TrackingServer } from '../../tracking';
+import { startTrackingServer, type TrackingServer, initFileTracking, mergeFileTrackedResources } from '../../tracking';
 import { startWebServer, killServer, type BrowserName } from './playwrightExecutor';
 import { loadCleanupHandlers, executeCleanup } from '../../core/cleanup/index.js';
 import type { CleanupConfig } from '../../core/cleanup/types.js';
@@ -36,6 +36,8 @@ export interface PipelineOptions {
   browser?: BrowserName;
   interactive?: boolean;
   debug?: boolean;
+  sessionId?: string;
+  trackDir?: string;
 }
 
 const getBrowser = (browser: BrowserName): BrowserType => {
@@ -147,6 +149,7 @@ function inferCleanupConfig(
   if (config.appwrite?.cleanup) {
     return {
       provider: 'appwrite',
+      scanUntracked: true,
       appwrite: {
         endpoint: config.appwrite.endpoint,
         projectId: config.appwrite.projectId,
@@ -173,8 +176,9 @@ export async function runPipeline(
   options: PipelineOptions = {}
 ): Promise<PipelineResult> {
   const pipelineDir = path.dirname(pipelinePath);
-  const sessionId = crypto.randomUUID();
+  const sessionId = options.sessionId ?? crypto.randomUUID();
   const testStartTime = new Date().toISOString();
+  const cleanupConfig = inferCleanupConfig(pipeline.config);
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`Pipeline: ${pipeline.name}`);
@@ -212,13 +216,35 @@ export async function runPipeline(
     process.env.INTELLITESTER_SESSION_ID = sessionId;
     process.env.INTELLITESTER_TRACK_URL = `http://localhost:${trackingServer.port}`;
   }
+  const fileTracking = await initFileTracking({
+    sessionId,
+    cwd: pipelineDir,
+    cleanupConfig,
+    trackDir: options.trackDir,
+    providerConfig: pipeline.config?.appwrite ? {
+      provider: 'appwrite',
+      endpoint: pipeline.config.appwrite.endpoint,
+      projectId: pipeline.config.appwrite.projectId,
+      apiKey: pipeline.config.appwrite.apiKey,
+    } : undefined,
+  });
+  process.env.INTELLITESTER_TRACK_FILE = fileTracking.trackFile;
 
   // 4. Start web server if configured
   let serverProcess: ChildProcess | null = null;
   if (pipeline.config?.webServer) {
     try {
+      const requiresTrackingEnv = Boolean(
+        pipeline.config?.appwrite?.cleanup || pipeline.config?.appwrite?.cleanupOnFailure
+      );
+      const effectiveWebServerConfig = requiresTrackingEnv
+        ? { ...pipeline.config.webServer, reuseExistingServer: false }
+        : pipeline.config.webServer;
+      if (requiresTrackingEnv && pipeline.config.webServer.reuseExistingServer !== false) {
+        console.log('[Intellitester] Appwrite cleanup enabled; restarting server to inject tracking env.');
+      }
       serverProcess = await startWebServer({
-        ...pipeline.config.webServer,
+        ...effectiveWebServerConfig,
         cwd: pipelineDir,
       });
     } catch (error) {
@@ -233,6 +259,8 @@ export async function runPipeline(
     console.log('\n\nInterrupted - cleaning up...');
     killServer(serverProcess);
     if (trackingServer) await trackingServer.stop();
+    await fileTracking.stop();
+    delete process.env.INTELLITESTER_TRACK_FILE;
     process.exit(1);
   };
   process.on('SIGINT', signalCleanup);
@@ -430,9 +458,10 @@ export async function runPipeline(
       }
     }
 
+    await mergeFileTrackedResources(fileTracking.trackFile, executionContext.appwriteContext);
+
     // 11. Run cleanup at end (respecting cleanup_on_failure)
     let cleanupResult: { success: boolean; deleted: string[]; failed: string[] } | undefined;
-    const cleanupConfig = inferCleanupConfig(pipeline.config);
 
     if (cleanupConfig) {
       const shouldCleanup = pipelineFailed ? pipeline.cleanup_on_failure : true;
@@ -473,6 +502,7 @@ export async function runPipeline(
               sessionId,
               testStartTime,
               userId: executionContext.appwriteContext.userId,
+              userEmail: executionContext.appwriteContext.userEmail,
               providerConfig,
               cwd: process.cwd(),
               config: cleanupConfig,
@@ -532,9 +562,11 @@ export async function runPipeline(
     if (trackingServer) {
       await trackingServer.stop();
     }
+    await fileTracking.stop();
 
     // Clean up env vars
     delete process.env.INTELLITESTER_SESSION_ID;
     delete process.env.INTELLITESTER_TRACK_URL;
+    delete process.env.INTELLITESTER_TRACK_FILE;
   }
 }

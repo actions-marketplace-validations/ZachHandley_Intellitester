@@ -40,6 +40,7 @@ const workflowCleanupConfigSchema = z.object({
   types: z.record(z.string(), z.string()).optional().describe('Map resource types to cleanup handler methods'),
   handlers: z.array(z.string()).optional().describe('Explicit paths to custom cleanup handler files'),
   discover: workflowCleanupDiscoverSchema,
+  scanUntracked: z.boolean().optional().describe('Scan for untracked resources using provider heuristics'),
 }).passthrough().describe('Resource cleanup configuration'); // Allow provider-specific configs like appwrite: {...}
 
 // Workflow-specific web server config

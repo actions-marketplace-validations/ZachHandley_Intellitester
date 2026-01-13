@@ -20,7 +20,9 @@ import type { Email } from '../../integrations/email/types';
 import { AppwriteTestClient, createTestContext, APPWRITE_PATTERNS, APPWRITE_UPDATE_PATTERNS, APPWRITE_DELETE_PATTERNS, type TrackedResource } from '../../integrations/appwrite';
 import { getBrowserLaunchOptions } from './browserOptions.js';
 import { getAISuggestion } from '../../ai/errorHelper';
-import { TrackingServer } from '../../tracking/trackingServer';
+import { TrackingServer, initFileTracking, mergeFileTrackedResources } from '../../tracking';
+import { track as trackResource } from '../../integration/index.js';
+import type { TrackedResource as IntegrationTrackedResource } from '../../integration/index.js';
 
 export type BrowserName = 'chromium' | 'firefox' | 'webkit';
 
@@ -51,6 +53,8 @@ export interface WebRunOptions {
   debug?: boolean;
   interactive?: boolean;
   aiConfig?: import('../../ai/types').AIConfig;
+  sessionId?: string;
+  trackDir?: string;
 }
 
 export interface StepResult {
@@ -506,6 +510,23 @@ async function executeActionWithRetry(
   },
 ): Promise<void> {
   const { baseUrl, context, screenshotDir, debugMode, interactive, aiConfig } = options;
+  const buildTrackPayload = (stepExtras?: Record<string, unknown>): IntegrationTrackedResource | null => {
+    if (!('track' in action)) return null;
+    const track = (action as { track?: Record<string, unknown> }).track;
+    if (!track || typeof track !== 'object') return null;
+    if (typeof track.type !== 'string' || typeof track.id !== 'string') return null;
+
+    const { includeStepContext, ...rest } = track;
+    const payload: IntegrationTrackedResource = {
+      type: track.type,
+      id: track.id,
+      ...rest,
+    };
+    if (includeStepContext) {
+      payload.step = { index, ...action, ...stepExtras };
+    }
+    return payload;
+  };
 
   while (true) {
     try {
@@ -916,6 +937,11 @@ async function executeActionWithRetry(
           throw new Error(`Unsupported action type: ${(action as Action).type}`);
       }
 
+      const trackedPayload = buildTrackPayload();
+      if (trackedPayload) {
+        await trackResource(trackedPayload);
+      }
+
       // Success - break out of retry loop
       return;
     } catch (err) {
@@ -973,24 +999,56 @@ export const runWebTest = async (
   const defaultTimeout = options.defaultTimeoutMs ?? 30000;
 
   // Start tracking server for SSR resource tracking
-  const sessionId = crypto.randomUUID();
+  const sessionId = options.sessionId ?? crypto.randomUUID();
   const trackingServer = new TrackingServer();
   await trackingServer.start();
 
   // Set env vars so the app can track resources
   process.env.INTELLITESTER_SESSION_ID = sessionId;
   process.env.INTELLITESTER_TRACK_URL = `http://localhost:${trackingServer.port}`;
+  const fileTracking = await initFileTracking({
+    sessionId,
+    trackDir: options.trackDir,
+    cleanupConfig: test.config?.appwrite?.cleanup ? {
+      provider: 'appwrite',
+      scanUntracked: true,
+      appwrite: {
+        endpoint: test.config.appwrite.endpoint,
+        projectId: test.config.appwrite.projectId,
+        apiKey: test.config.appwrite.apiKey,
+        cleanupOnFailure: test.config.appwrite.cleanupOnFailure,
+      },
+    } : undefined,
+    providerConfig: test.config?.appwrite ? {
+      provider: 'appwrite',
+      endpoint: test.config.appwrite.endpoint,
+      projectId: test.config.appwrite.projectId,
+      apiKey: test.config.appwrite.apiKey,
+    } : undefined,
+  });
+  process.env.INTELLITESTER_TRACK_FILE = fileTracking.trackFile;
 
   // Start webServer if configured
   let serverProcess: ChildProcess | null = null;
   if (options.webServer) {
-    serverProcess = await startWebServer(options.webServer);
+    const requiresTrackingEnv = Boolean(
+      test.config?.appwrite?.cleanup || test.config?.appwrite?.cleanupOnFailure
+    );
+    const webServerConfig = requiresTrackingEnv
+      ? { ...options.webServer, reuseExistingServer: false }
+      : options.webServer;
+    if (requiresTrackingEnv && options.webServer.reuseExistingServer !== false) {
+      console.log('[Intellitester] Appwrite cleanup enabled; restarting server to inject tracking env.');
+    }
+    serverProcess = await startWebServer(webServerConfig);
   }
 
   // Handle Ctrl+C and termination signals
   const cleanup = () => {
     trackingServer.stop();
     killServer(serverProcess);
+    void fileTracking.stop();
+    delete process.env.INTELLITESTER_TRACK_FILE;
     process.exit(1);
   };
   process.on('SIGINT', cleanup);
@@ -1241,6 +1299,27 @@ export const runWebTest = async (
   const results: StepResult[] = [];
   const debugMode = options.debug ?? false;
   const interactive = options.interactive ?? false;
+  const buildTrackPayload = (
+    action: Action,
+    index: number,
+    stepExtras?: Record<string, unknown>
+  ): IntegrationTrackedResource | null => {
+    if (!('track' in action)) return null;
+    const track = (action as { track?: Record<string, unknown> }).track;
+    if (!track || typeof track !== 'object') return null;
+    if (typeof track.type !== 'string' || typeof track.id !== 'string') return null;
+
+    const { includeStepContext, ...rest } = track;
+    const payload: IntegrationTrackedResource = {
+      type: track.type,
+      id: track.id,
+      ...rest,
+    };
+    if (includeStepContext) {
+      payload.step = { index, ...action, ...stepExtras };
+    }
+    return payload;
+  };
 
   try {
     for (const [index, action] of test.steps.entries()) {
@@ -1290,6 +1369,10 @@ export const runWebTest = async (
 
           const screenshotPath = await runScreenshot(page, ssAction.name, screenshotDir, index);
           results.push({ action, status: 'passed', screenshotPath });
+          const trackedPayload = buildTrackPayload(action, index, { screenshotPath });
+          if (trackedPayload) {
+            await trackResource(trackedPayload);
+          }
           continue;
         }
 
@@ -1315,6 +1398,11 @@ export const runWebTest = async (
     process.off('SIGINT', cleanup);
     process.off('SIGTERM', cleanup);
 
+    await mergeFileTrackedResources(
+      fileTracking.trackFile,
+      executionContext.appwriteContext
+    );
+
     // Run Appwrite cleanup if configured
     if (test.config?.appwrite?.cleanup) {
       const appwriteClient = new AppwriteTestClient({
@@ -1331,6 +1419,9 @@ export const runWebTest = async (
       );
       console.log('Cleanup result:', cleanupResult);
     }
+
+    await fileTracking.stop();
+    delete process.env.INTELLITESTER_TRACK_FILE;
 
     await browserContext.close();
     await browser.close();

@@ -161,6 +161,10 @@
               "description": "Run cleanup even if pipeline fails",
               "default": true,
               "type": "boolean"
+            },
+            "scanUntracked": {
+              "type": "boolean",
+              "description": "Scan for untracked resources using provider heuristics"
             }
           },
           "required": [

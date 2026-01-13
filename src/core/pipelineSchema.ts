@@ -42,6 +42,7 @@ const pipelineCleanupConfigSchema = z.object({
   types: z.record(z.string(), z.string()).optional().describe('Map resource types to cleanup handler methods'),
   handlers: z.array(z.string()).optional().describe('Explicit paths to custom cleanup handler files'),
   discover: pipelineCleanupDiscoverSchema,
+  scanUntracked: z.boolean().optional().describe('Scan for untracked resources using provider heuristics'),
   on_failure: z.boolean().default(true).describe('Run cleanup even if pipeline fails'),
 }).passthrough().describe('Resource cleanup configuration'); // Allow provider-specific configs like appwrite: {...}
 

@@ -2,6 +2,16 @@ import { z } from 'zod';
 
 const nonEmptyString = z.string().trim().min(1, 'Value cannot be empty');
 
+const trackSchema = z.object({
+  type: nonEmptyString.describe('Tracked resource type (e.g., row, user, file)'),
+  id: nonEmptyString.describe('Tracked resource ID'),
+  includeStepContext: z.boolean().optional().describe('Include step context with tracked resource'),
+}).passthrough().describe('Optional tracking metadata for cleanup');
+
+const trackableSchema = z.object({
+  track: trackSchema.optional(),
+});
+
 export const LocatorSchema = z
   .object({
     description: z.string().trim().optional().describe('AI-friendly description of the element to find'),
@@ -192,26 +202,28 @@ const BaseActionSchema = z.discriminatedUnion('type', [
   failActionSchema,
 ]);
 
-const conditionalActionSchema = z.object({
+const TrackableBaseActionSchema = z.intersection(BaseActionSchema, trackableSchema);
+
+const conditionalActionSchema = z.intersection(z.object({
   type: z.literal('conditional'),
   condition: z.object({
     type: z.enum(['exists', 'notExists', 'visible', 'hidden']),
     target: LocatorSchema,
   }).describe('Condition to check'),
-  then: z.array(BaseActionSchema).describe('Steps to execute if condition is true'),
-  else: z.array(BaseActionSchema).optional().describe('Steps to execute if condition is false'),
-}).describe('Execute steps conditionally based on element state');
+  then: z.array(TrackableBaseActionSchema).describe('Steps to execute if condition is true'),
+  else: z.array(TrackableBaseActionSchema).optional().describe('Steps to execute if condition is false'),
+}).describe('Execute steps conditionally based on element state'), trackableSchema);
 
 // Branch definition - can be inline actions OR a workflow file reference
 const branchSchema = z.union([
-  z.array(BaseActionSchema),  // Inline actions
+  z.array(TrackableBaseActionSchema),  // Inline actions
   z.object({
     workflow: z.string().trim().min(1).describe('Path to workflow file relative to current file'),
     variables: z.record(z.string(), z.string()).optional().describe('Variables to pass to the workflow'),
   }),
 ]).describe('Actions to execute - either inline steps or a workflow file reference');
 
-const waitForBranchActionSchema = z.object({
+const waitForBranchActionSchema = z.intersection(z.object({
   type: z.literal('waitForBranch'),
   target: LocatorSchema.describe('Element to wait for'),
   timeout: z.number().int().positive().optional().describe('Maximum time to wait for element in milliseconds (default: 30000)'),
@@ -219,9 +231,9 @@ const waitForBranchActionSchema = z.object({
   onAppear: branchSchema.describe('Actions to execute when element appears within timeout'),
   onTimeout: branchSchema.optional().describe('Actions to execute if timeout occurs (silent continue if omitted)'),
   pollInterval: z.number().int().positive().optional().describe('How often to check for element in milliseconds (default: 100)'),
-}).describe('Wait for an element and branch based on whether it appears or times out');
+}).describe('Wait for an element and branch based on whether it appears or times out'), trackableSchema);
 
-export const ActionSchema = z.union([BaseActionSchema, conditionalActionSchema, waitForBranchActionSchema]);
+export const ActionSchema = z.union([TrackableBaseActionSchema, conditionalActionSchema, waitForBranchActionSchema]);
 
 const defaultsSchema = z.object({
   timeout: z.number().int().positive().optional().describe('Default timeout in milliseconds for all actions'),
@@ -310,6 +322,7 @@ export const cleanupConfigSchema = z.object({
   types: z.record(z.string(), z.string()).optional().describe('Map resource types to cleanup handler methods'),
   handlers: z.array(z.string()).optional().describe('Explicit paths to custom cleanup handler files'),
   discover: cleanupDiscoverSchema,
+  scanUntracked: z.boolean().optional().describe('Scan for untracked resources using provider heuristics'),
 }).passthrough().describe('Comprehensive resource cleanup configuration'); // Allow provider-specific configs like appwrite: {...}
 
 // Export the inferred type

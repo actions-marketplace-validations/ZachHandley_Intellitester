@@ -198,3 +198,20 @@ await track({
 ```
 
 The `track()` function is production-safe - it's a no-op if the required environment variables aren't set. IntelliTester sets these automatically during test execution.
+
+### File-Based Tracking (Fallback)
+
+IntelliTester can persist tracked resources to disk in addition to (or instead of) the in-memory tracking server. This helps recover from interrupted runs and enables cleanup even if the tracking server is unavailable.
+
+By default, the executor sets:
+
+- `INTELLITESTER_TRACK_FILE` to a JSONL file in `.intellitester/track/TEST_SESSION_<id>.jsonl`
+- `.intellitester/track/ACTIVE_TESTS.json` for heartbeats and stale session pruning
+
+You can override the session ID or tracking directory:
+
+```bash
+intellitester run --session-id my-session --track-dir .intellitester/track
+```
+
+If `INTELLITESTER_TRACK_URL` is set, `track()` will send HTTP requests and also append to the track file (when available). If only the file is set, `track()` writes locally.

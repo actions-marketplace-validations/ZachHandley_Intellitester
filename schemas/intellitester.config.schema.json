@@ -314,6 +314,10 @@
             "pattern"
           ],
           "additionalProperties": false
+        },
+        "scanUntracked": {
+          "type": "boolean",
+          "description": "Scan for untracked resources using provider heuristics"
         }
       },
       "required": [

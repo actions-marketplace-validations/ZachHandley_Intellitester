@@ -188,6 +188,31 @@
                 "description": "URL or path to navigate to",
                 "type": "string",
                 "minLength": 1
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -237,6 +262,31 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -290,6 +340,31 @@
               "value": {
                 "description": "Text to input (can reference variables with ${VAR_NAME})",
                 "type": "string"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -344,6 +419,31 @@
               "value": {
                 "description": "Expected text content",
                 "type": "string"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -399,6 +499,31 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -462,6 +587,31 @@
                 "type": "integer",
                 "exclusiveMinimum": 0,
                 "maximum": 9007199254740991
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -480,6 +630,31 @@
               "name": {
                 "description": "Name for the screenshot file",
                 "type": "string"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -520,6 +695,31 @@
               "pattern": {
                 "description": "Regular expression pattern for extraction",
                 "type": "string"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -550,6 +750,31 @@
               "subjectContains": {
                 "description": "Filter by email subject",
                 "type": "string"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -574,6 +799,31 @@
               "pattern": {
                 "description": "Regular expression to extract code",
                 "type": "string"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -598,6 +848,31 @@
               "pattern": {
                 "description": "Regular expression to match specific links",
                 "type": "string"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -618,6 +893,31 @@
                 "description": "Email address or mailbox to clear",
                 "type": "string",
                 "minLength": 1
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -633,6 +933,31 @@
               "type": {
                 "type": "string",
                 "const": "appwrite.verifyEmail"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
@@ -647,6 +972,31 @@
               "type": {
                 "type": "string",
                 "const": "debug"
+              },
+              "track": {
+                "type": "object",
+                "description": "Optional tracking metadata for cleanup",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource type"
+                  },
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tracked resource ID"
+                  },
+                  "includeStepContext": {
+                    "type": "boolean",
+                    "description": "Include step context with tracked resource"
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": true
               }
             },
             "required": [
