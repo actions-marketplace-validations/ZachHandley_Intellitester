@@ -285,7 +285,6 @@ export function createAppwriteProvider(config: AppwriteConfig): CleanupProvider 
             let hasMore = true;
             let cursor: string | undefined;
 
-            let tableMatchesLogged = false;
             let tableMatchesFound = 0;
             while (hasMore) {
               const queries = [
@@ -355,7 +354,6 @@ export function createAppwriteProvider(config: AppwriteConfig): CleanupProvider 
               console.log(
                 `[Appwrite Cleanup] Table "${table.name}": matched ${tableMatchesFound} rows for cleanup`
               );
-              tableMatchesLogged = true;
             }
           } catch (error) {
             console.warn(
@@ -408,7 +406,6 @@ export function createAppwriteProvider(config: AppwriteConfig): CleanupProvider 
           let hasMore = true;
           let cursor: string | undefined;
 
-          let bucketMatchesLogged = false;
           let bucketMatchesFound = 0;
           while (hasMore) {
             const queries = bucketShouldDelete
@@ -483,7 +480,6 @@ export function createAppwriteProvider(config: AppwriteConfig): CleanupProvider 
             console.log(
               `[Appwrite Cleanup] Bucket "${bucket.name}": matched ${bucketMatchesFound} files for cleanup`
             );
-            bucketMatchesLogged = true;
           }
         } catch (error) {
           console.warn(
