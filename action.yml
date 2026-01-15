@@ -217,8 +217,9 @@ runs:
               ;;
           esac
         }
-        # Get version from action ref (e.g., v0.2.23 -> 0.2.23)
+        # Get version from action ref (e.g., v0.2.23 -> 0.2.23, main -> latest)
         ACTION_VERSION="${ACTION_REF#v}"
+        [[ "$ACTION_VERSION" == "main" ]] && ACTION_VERSION="latest"
         grep -q '"playwright"' "$WORK_DIR/package.json" 2>/dev/null || add_dev playwright@latest
         grep -q '"intellitester"' "$WORK_DIR/package.json" 2>/dev/null || add_dev "intellitester@${ACTION_VERSION:-latest}"
 
