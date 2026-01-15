@@ -940,6 +940,77 @@ const main = async (): Promise<void> => {
           return;
         }
 
+        // Check if file argument is actually a directory
+        const resolvedFile = path.resolve(file);
+        const fileStat = await fs.stat(resolvedFile);
+        if (fileStat.isDirectory()) {
+          // Discover and run tests in the specified directory
+          const discovered = await discoverTestFiles(resolvedFile);
+          const total = discovered.pipelines.length + discovered.workflows.length + discovered.tests.length;
+
+          if (total === 0) {
+            logError(`No test files found in ${file}. Create .pipeline.yaml, .workflow.yaml, or .test.yaml files.`);
+            process.exit(1);
+          }
+
+          console.log(`Discovered ${total} test file(s) in ${file}:`);
+          if (discovered.pipelines.length > 0) {
+            console.log(`  Pipelines: ${discovered.pipelines.length}`);
+          }
+          if (discovered.workflows.length > 0) {
+            console.log(`  Workflows: ${discovered.workflows.length}`);
+          }
+          if (discovered.tests.length > 0) {
+            console.log(`  Tests: ${discovered.tests.length}`);
+          }
+          console.log('');
+
+          let failed = false;
+
+          for (const pipeline of discovered.pipelines) {
+            try {
+              await runPipelineCommand(pipeline, runOpts);
+            } catch (error) {
+              console.error(`\n❌ Pipeline failed: ${path.basename(pipeline)}`);
+              console.error(`   ${error instanceof Error ? error.message : String(error)}\n`);
+              failed = true;
+            }
+          }
+
+          for (const workflow of discovered.workflows) {
+            try {
+              await runWorkflowCommand(workflow, runOpts);
+            } catch (error) {
+              console.error(`\n❌ Workflow failed: ${path.basename(workflow)}`);
+              console.error(`   ${error instanceof Error ? error.message : String(error)}\n`);
+              failed = true;
+            }
+          }
+
+          for (const test of discovered.tests) {
+            try {
+              await runTestCommand(test, {
+                headed: options.visible,
+                browser,
+                noServer: !options.server,
+                interactive: options.interactive,
+                debug: options.debug,
+                sessionId: options.sessionId,
+                trackDir: options.trackDir,
+              });
+            } catch (error) {
+              console.error(`\n❌ Test failed: ${path.basename(test)}`);
+              console.error(`   ${error instanceof Error ? error.message : String(error)}\n`);
+              failed = true;
+            }
+          }
+
+          if (failed) {
+            process.exitCode = 1;
+          }
+          return;
+        }
+
         // Check if it's a pipeline file FIRST
         if (isPipelineFile(file)) {
           await runPipelineCommand(file, runOpts);
