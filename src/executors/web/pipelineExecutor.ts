@@ -393,6 +393,7 @@ export async function runPipeline(
           skipCleanup: true, // Defer cleanup to pipeline end
           sessionId,
           testStartTime,
+          baseUrl: pipeline.config?.web?.baseUrl, // Pass pipeline's baseUrl as fallback
         };
 
         const result = await runWorkflowWithContext(

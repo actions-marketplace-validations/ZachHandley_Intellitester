@@ -115,6 +115,37 @@ const cleanupStaleSession = async (
   }
 };
 
+const cleanupOrphanedTrackFiles = async (cwd: string, state: ActiveTestsState, trackDir?: string): Promise<void> => {
+  const dir = getTrackDir(cwd, trackDir);
+  try {
+    const files = await fs.readdir(dir);
+    const activeFiles = new Set(Object.values(state.sessions).map((s) => path.basename(s.trackFile)));
+
+    for (const file of files) {
+      // Only clean up .jsonl track files, not ACTIVE_TESTS.json or other files
+      if (!file.endsWith('.jsonl')) continue;
+      if (activeFiles.has(file)) continue;
+
+      const filePath = path.join(dir, file);
+      try {
+        const stat = await fs.stat(filePath);
+        // Remove if empty or older than stale threshold
+        const staleMs = Number(process.env.INTELLITESTER_STALE_TEST_MS ?? DEFAULT_STALE_MS);
+        const isOld = Date.now() - stat.mtimeMs > staleMs;
+        const isEmpty = stat.size === 0;
+
+        if (isEmpty || isOld) {
+          await fs.rm(filePath, { force: true });
+        }
+      } catch {
+        // Ignore errors for individual files
+      }
+    }
+  } catch {
+    // Directory might not exist yet
+  }
+};
+
 const pruneStaleTests = async (cwd: string, cleanupConfig?: CleanupConfig, trackDir?: string): Promise<void> => {
   const state = await loadActiveTests(cwd, trackDir);
   const staleMs = Number(process.env.INTELLITESTER_STALE_TEST_MS ?? DEFAULT_STALE_MS);
@@ -122,13 +153,16 @@ const pruneStaleTests = async (cwd: string, cleanupConfig?: CleanupConfig, track
 
   for (const [sessionId, entry] of Object.entries(state.sessions)) {
     let missingFile = false;
+    let isEmpty = false;
     try {
-      await fs.access(entry.trackFile);
+      const stat = await fs.stat(entry.trackFile);
+      isEmpty = stat.size === 0;
     } catch {
       missingFile = true;
     }
 
-    if (!missingFile && !isStale(entry, staleMs)) continue;
+    // Also clean up empty track files for stale sessions
+    if (!missingFile && !isEmpty && !isStale(entry, staleMs)) continue;
     changed = true;
 
     await cleanupStaleSession(entry, cleanupConfig);
@@ -143,6 +177,9 @@ const pruneStaleTests = async (cwd: string, cleanupConfig?: CleanupConfig, track
   if (changed) {
     await saveActiveTests(cwd, state, trackDir);
   }
+
+  // Also clean up orphaned track files not in ACTIVE_TESTS.json
+  await cleanupOrphanedTrackFiles(cwd, state, trackDir);
 };
 
 export async function initFileTracking(options: FileTrackingOptions): Promise<{

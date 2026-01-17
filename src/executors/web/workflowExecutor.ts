@@ -41,6 +41,7 @@ export interface WorkflowOptions {
   webServer?: WebServerConfig;
   sessionId?: string;
   trackDir?: string;
+  baseUrl?: string; // Fallback baseUrl from pipeline config
 }
 
 export interface WorkflowWithContextOptions extends WorkflowOptions {
@@ -1042,8 +1043,8 @@ export async function runWorkflowWithContext(
         }
       }
 
-      // Run test with shared browser context
-      const result = await runTestInWorkflow(test, page, executionContext, options, workflowDir, workflow.config?.web?.baseUrl);
+      // Run test with shared browser context (baseUrl: workflow → pipeline → undefined)
+      const result = await runTestInWorkflow(test, page, executionContext, options, workflowDir, workflow.config?.web?.baseUrl ?? options.baseUrl);
 
       const testResult: WorkflowTestResult = {
         id: testRef.id,
