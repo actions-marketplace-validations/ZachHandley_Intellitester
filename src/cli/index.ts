@@ -2001,8 +2001,10 @@ const main = async (): Promise<void> => {
             }
 
             // File tracking is always initialized as backup/primary
+            // Always use process.cwd() (project root where config is), not previewCwd
             const fileTracking = await initFileTracking({
               sessionId,
+              cwd: process.cwd(),
               trackDir: options.trackDir,
               providerConfig: config?.appwrite ? {
                 provider: 'appwrite',
