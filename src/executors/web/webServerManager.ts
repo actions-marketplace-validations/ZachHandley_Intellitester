@@ -349,7 +349,8 @@ class WebServerManager {
       if (!reuseExistingServer) {
         throw new Error(`Port ${new URL(url).port} is already in use by another process`);
       }
-      console.warn(`Warning: Unknown server detected at ${url}. Will attempt to start anyway.`);
+      console.log(`Reusing existing server at ${url}`);
+      return null; // Return null to indicate we're reusing an external server
     }
 
     // Determine the command to run
