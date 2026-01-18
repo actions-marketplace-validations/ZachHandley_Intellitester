@@ -1970,9 +1970,10 @@ const main = async (): Promise<void> => {
         if (options.preview || options.prod) {
           const hasConfigFile = await fileExists(CONFIG_FILENAME);
           const config = hasConfigFile ? await loadIntellitesterConfig(CONFIG_FILENAME) : undefined;
-          // Use webServer.cwd from config if specified, otherwise use current directory
-          const previewCwd = config?.webServer?.cwd
-            ? path.resolve(process.cwd(), config.webServer.cwd)
+          // Use webServer.workdir (or deprecated cwd) from config if specified, otherwise use current directory
+          const webServerWorkdir = config?.webServer?.workdir ?? config?.webServer?.cwd;
+          const previewCwd = webServerWorkdir
+            ? path.resolve(process.cwd(), webServerWorkdir)
             : process.cwd();
           // Load .env from test app directory (overrides repo root .env vars)
           // Repo root .env is loaded at CLI startup, test app .env takes precedence
