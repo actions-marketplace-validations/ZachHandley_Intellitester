@@ -2,6 +2,18 @@ import { z } from 'zod';
 
 const nonEmptyString = z.string().trim().min(1, 'Value cannot be empty');
 
+// Transform empty strings to undefined for optional fields
+const optionalString = z.preprocess(
+  (val) => (typeof val === 'string' && val.trim() === '' ? undefined : val),
+  z.string().trim().optional()
+);
+
+// Transform empty strings to undefined for optional URL fields
+const optionalUrl = z.preprocess(
+  (val) => (typeof val === 'string' && val.trim() === '' ? undefined : val),
+  z.string().trim().url().optional()
+);
+
 const trackSchema = z.object({
   type: nonEmptyString.describe('Tracked resource type (e.g., row, user, file)'),
   id: nonEmptyString.describe('Tracked resource ID'),
@@ -258,7 +270,7 @@ const defaultsSchema = z.object({
 }).describe('Default settings that apply to all tests unless overridden');
 
 const webConfigSchema = z.object({
-  baseUrl: nonEmptyString.url().optional().describe('Base URL for the web application'),
+  baseUrl: optionalUrl.describe('Base URL for the web application'),
   browser: z.string().trim().optional().describe('Browser to use for testing'),
   headless: z.boolean().optional().describe('Run browser in headless mode'),
   timeout: z.number().int().positive().optional().describe('Timeout in milliseconds for web actions'),
@@ -276,7 +288,7 @@ const iosConfigSchema = z.object({
 
 const emailConfigSchema = z.object({
   provider: z.literal('inbucket').describe('Email testing provider'),
-  endpoint: nonEmptyString.url().optional().describe('Email service endpoint URL'),
+  endpoint: optionalUrl.describe('Email service endpoint URL'),
 }).describe('Email testing configuration');
 
 const appwriteConfigSchema = z.object({
@@ -319,7 +331,7 @@ const aiConfigSchema = z.object({
   provider: z.enum(['anthropic', 'openai', 'ollama']).describe('AI provider to use for test generation'),
   model: nonEmptyString.describe('Model name to use'),
   apiKey: z.string().trim().optional().describe('API key for the AI provider'),
-  baseUrl: z.string().trim().url().optional().describe('Base URL for the AI API (required for Ollama)'),
+  baseUrl: optionalUrl.describe('Base URL for the AI API (required for Ollama)'),
   temperature: z.number().min(0).max(2).default(0.2).describe('Temperature for AI generation (0 = deterministic, 2 = very creative)'),
   maxTokens: z.number().int().positive().default(4096).describe('Maximum tokens for AI responses'),
   source: aiSourceSchema,
@@ -360,7 +372,7 @@ export const previewConfigSchema = z.object({
   preview: z.object({
     command: z.string().optional().describe('Command to start the preview server after build'),
   }).optional().describe('Preview server configuration'),
-  url: z.string().url().optional().describe('URL to wait for before starting tests'),
+  url: optionalUrl.describe('URL to wait for before starting tests'),
   timeout: z.number().int().positive().optional().describe('Timeout in milliseconds to wait for preview server'),
 }).describe('Configuration for the --preview flag (build and serve production build)');
 

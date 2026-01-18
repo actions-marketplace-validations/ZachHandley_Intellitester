@@ -204,9 +204,17 @@ async function runTestInWorkflow(
         switch (action.type) {
           case 'navigate': {
             const interpolated = interpolate(action.value);
-            const baseUrl = test.config?.web?.baseUrl ?? workflowBaseUrl;
+            const baseUrl = test.config?.web?.baseUrl || workflowBaseUrl;
             const target = resolveUrl(interpolated, baseUrl);
-            if (debugMode) console.log(`  [DEBUG] Navigating to: ${target}`);
+            if (debugMode) {
+              console.log(`  [DEBUG] Navigate step:`);
+              console.log(`  [DEBUG]   - action.value: ${action.value}`);
+              console.log(`  [DEBUG]   - interpolated: ${interpolated}`);
+              console.log(`  [DEBUG]   - test.config?.web?.baseUrl: ${test.config?.web?.baseUrl ?? '(undefined)'}`);
+              console.log(`  [DEBUG]   - workflowBaseUrl: ${workflowBaseUrl ?? '(undefined)'}`);
+              console.log(`  [DEBUG]   - effective baseUrl: ${baseUrl ?? '(undefined)'}`);
+              console.log(`  [DEBUG]   - target: ${target}`);
+            }
             await page.goto(target);
             break;
           }
@@ -587,7 +595,7 @@ async function runTestInWorkflow(
                   switch (nestedAction.type) {
                     case 'navigate': {
                       const interpolated = interpolate(nestedAction.value);
-                      const baseUrl = test.config?.web?.baseUrl ?? workflowBaseUrl;
+                      const baseUrl = test.config?.web?.baseUrl || workflowBaseUrl;
                       const target = resolveUrl(interpolated, baseUrl);
                       await page.goto(target);
                       break;
@@ -1051,7 +1059,13 @@ export async function runWorkflowWithContext(
       }
 
       // Run test with shared browser context (baseUrl: workflow → pipeline → undefined)
-      const result = await runTestInWorkflow(test, page, executionContext, options, workflowDir, workflow.config?.web?.baseUrl ?? options.baseUrl);
+      const effectiveBaseUrl = workflow.config?.web?.baseUrl || options.baseUrl;
+      if (options.debug) {
+        console.log(`  [DEBUG] Effective baseUrl for test: ${effectiveBaseUrl ?? '(none)'}`);
+        console.log(`  [DEBUG]   - workflow.config?.web?.baseUrl: ${workflow.config?.web?.baseUrl ?? '(undefined)'}`);
+        console.log(`  [DEBUG]   - options.baseUrl: ${options.baseUrl ?? '(undefined)'}`);
+      }
+      const result = await runTestInWorkflow(test, page, executionContext, options, workflowDir, effectiveBaseUrl);
 
       const testResult: WorkflowTestResult = {
         id: testRef.id,
