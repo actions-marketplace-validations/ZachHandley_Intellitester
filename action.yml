@@ -23,9 +23,9 @@ inputs:
     required: false
     default: '22'
   package-manager:
-    description: 'Package manager (npm, pnpm, yarn, bun)'
+    description: 'Package manager (auto, npm, pnpm, yarn, bun). Auto-detects from lockfile by default.'
     required: false
-    default: 'pnpm'
+    default: 'auto'
   npm-registry:
     description: 'Custom npm registry URL for private packages'
     required: false
@@ -63,10 +63,33 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
 
-    - name: Install package manager
-      if: inputs.package-manager != 'npm'
+    - name: Detect package manager
+      id: detect-pm
       shell: bash
-      run: npm install -g ${{ inputs.package-manager }}@latest
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        # Auto-detect from lockfile if set to 'auto'
+        if [[ "${{ inputs.package-manager }}" == "auto" ]]; then
+          if [[ -f "bun.lockb" ]]; then
+            PM="bun"
+          elif [[ -f "pnpm-lock.yaml" ]]; then
+            PM="pnpm"
+          elif [[ -f "yarn.lock" ]]; then
+            PM="yarn"
+          else
+            PM="npm"
+          fi
+          echo "Auto-detected package manager: $PM"
+        else
+          PM="${{ inputs.package-manager }}"
+          echo "Using specified package manager: $PM"
+        fi
+        echo "pm=$PM" >> "$GITHUB_OUTPUT"
+
+    - name: Install package manager
+      if: steps.detect-pm.outputs.pm != 'npm'
+      shell: bash
+      run: npm install -g ${{ steps.detect-pm.outputs.pm }}@latest
 
     - name: Configure npm registry
       if: inputs.npm-registry != ''
@@ -98,7 +121,7 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        PM: ${{ inputs.package-manager }}
+        PM: ${{ steps.detect-pm.outputs.pm }}
         ACTION_REF: ${{ github.action_ref }}
         WORK_DIR: ${{ inputs.working-directory }}
       run: |
@@ -230,7 +253,7 @@ runs:
     - name: Install dependencies
       shell: bash
       working-directory: ${{ inputs.working-directory }}
-      run: ${{ inputs.package-manager }} install
+      run: ${{ steps.detect-pm.outputs.pm }} install
 
     - name: Get Playwright version
       id: pw-version
