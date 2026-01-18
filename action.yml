@@ -23,7 +23,7 @@ inputs:
     required: false
     default: '22'
   package-manager:
-    description: 'Package manager (auto, npm, pnpm, yarn, bun). Auto-detects from lockfile by default.'
+    description: 'Package manager (auto, npm, pnpm, yarn, bun, deno). Auto-detects from lockfile by default.'
     required: false
     default: 'auto'
   npm-registry:
@@ -70,7 +70,9 @@ runs:
       run: |
         # Auto-detect from lockfile if set to 'auto'
         if [[ "${{ inputs.package-manager }}" == "auto" ]]; then
-          if [[ -f "bun.lockb" ]]; then
+          if [[ -f "deno.lock" ]]; then
+            PM="deno"
+          elif [[ -f "bun.lockb" ]] || [[ -f "bun.lock" ]]; then
             PM="bun"
           elif [[ -f "pnpm-lock.yaml" ]]; then
             PM="pnpm"

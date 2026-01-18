@@ -398,3 +398,148 @@ All workflows in a pipeline share the same browser context, preserving:
 - Cookies and session storage
 - Authentication state
 - Local storage data
+
+## Responsive Testing (Viewport Sizes)
+
+IntelliTester can run tests across multiple viewport sizes to ensure your application works correctly on different devices.
+
+### Named Sizes
+
+Use Tailwind-style breakpoint names:
+
+| Size | Width | Height | Device Type |
+|------|-------|--------|-------------|
+| `xs` | 320 | 568 | Mobile portrait |
+| `sm` | 640 | 800 | Small tablet |
+| `md` | 768 | 1024 | Tablet |
+| `lg` | 1024 | 768 | Desktop |
+| `xl` | 1280 | 720 | Large desktop |
+
+### Custom Sizes
+
+Use `WIDTHxHEIGHT` format for custom dimensions:
+
+```bash
+intellitester run tests/ --test-sizes 1920x1080,375x812,414x896
+```
+
+### CLI Usage
+
+```bash
+# Run tests at all breakpoints
+intellitester run tests/ --test-sizes xs,sm,md,lg,xl
+
+# Run at specific sizes
+intellitester run app.workflow.yaml --test-sizes xs,md,xl
+
+# Mix named and custom sizes
+intellitester run tests/ --test-sizes xs,1920x1080
+```
+
+### YAML Configuration
+
+**Workflow-level:**
+
+```yaml
+name: Responsive Tests
+platform: web
+config:
+  web:
+    baseUrl: http://localhost:3000
+    testSizes: ['xs', 'sm', 'md', 'lg', 'xl']
+tests:
+  - file: ./homepage.test.yaml
+  - file: ./navigation.test.yaml
+```
+
+**Pipeline-level:**
+
+```yaml
+name: Full Responsive Suite
+platform: web
+config:
+  web:
+    testSizes: ['xs', 'md', 'xl']
+workflows:
+  - file: ./auth.workflow.yaml
+  - file: ./dashboard.workflow.yaml
+```
+
+### Behavior
+
+- Tests run once per specified viewport size
+- Results are prefixed with size when multiple sizes are tested: `[xs] test.yaml`, `[md] test.yaml`
+- Browser session (cookies, authentication state) is preserved across sizes
+- Browser context is recreated for each size with new viewport dimensions
+
+## Configuration Inheritance
+
+IntelliTester uses a cascading configuration system. Lower-level configuration takes precedence over higher levels.
+
+### Priority Order
+
+```
+Test Config > Workflow Config > Pipeline Config > Global Config > Defaults
+     ↑              ↑                ↑                 ↑            ↑
+  Highest                                                        Lowest
+```
+
+### Configuration Levels
+
+**1. Global Config (`intellitester.yaml`):**
+
+```yaml
+defaults:
+  timeout: 30000
+  screenshots: on-failure
+
+platforms:
+  web:
+    baseUrl: http://localhost:3000
+    headless: true
+```
+
+**2. Pipeline Config (`.pipeline.yaml`):**
+
+```yaml
+config:
+  web:
+    headless: false  # Overrides global
+    testSizes: ['xs', 'md', 'xl']
+```
+
+**3. Workflow Config (`.workflow.yaml`):**
+
+```yaml
+config:
+  web:
+    baseUrl: http://localhost:4000  # Overrides pipeline/global
+```
+
+**4. Test Config (`.test.yaml`):**
+
+```yaml
+config:
+  defaults:
+    timeout: 60000  # Overrides for this test only
+```
+
+### Configuration Options
+
+| Setting | Test | Workflow | Pipeline | Global |
+|---------|------|----------|----------|--------|
+| `baseUrl` | Yes | Yes | Yes | Yes |
+| `browser` | Yes | Yes | Yes | Yes |
+| `headless` | Yes | Yes | Yes | Yes |
+| `timeout` | Yes | Yes | Yes | Yes |
+| `testSizes` | - | Yes | Yes | - |
+| `webServer` | - | Yes | Yes | Yes |
+| `appwrite` | Yes | Yes | Yes | Yes |
+| `cleanup` | Yes | Yes | Yes | Yes |
+| `email` | Yes | Yes | Yes | Yes |
+
+### Important Notes
+
+- Configuration uses **simple override**, not deep merge
+- CLI flags (e.g., `--headed`, `--test-sizes`) override all YAML configuration
+- Environment variables (`${VAR_NAME}`) are resolved at load time

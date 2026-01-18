@@ -53,9 +53,10 @@ const resolveBrowserName = (input: string): BrowserName => {
 /**
  * Detect package manager from lockfile.
  */
-const detectPackageManager = async (): Promise<'pnpm' | 'npm' | 'yarn' | 'bun'> => {
+const detectPackageManager = async (): Promise<'deno' | 'pnpm' | 'npm' | 'yarn' | 'bun'> => {
+  if (await fileExists('deno.lock')) return 'deno';
   if (await fileExists('pnpm-lock.yaml')) return 'pnpm';
-  if (await fileExists('bun.lockb')) return 'bun';
+  if (await fileExists('bun.lockb') || await fileExists('bun.lock')) return 'bun';
   if (await fileExists('yarn.lock')) return 'yarn';
   return 'npm';
 };
@@ -1149,6 +1150,149 @@ config:
     parallel: false
     retries: 3
 \`\`\`
+
+---
+
+## Viewport Sizes (Responsive Testing)
+
+IntelliTester can run tests across multiple viewport sizes to ensure your application works on different devices.
+
+### Named Sizes (Tailwind Breakpoints)
+
+| Size | Width | Height | Device Type |
+|------|-------|--------|-------------|
+| \`xs\` | 320 | 568 | Mobile portrait |
+| \`sm\` | 640 | 800 | Small tablet |
+| \`md\` | 768 | 1024 | Tablet |
+| \`lg\` | 1024 | 768 | Desktop |
+| \`xl\` | 1280 | 720 | Large desktop |
+
+### Custom Sizes
+
+Use \`WIDTHxHEIGHT\` format for custom dimensions:
+
+\`\`\`bash
+intellitester run tests/ --test-sizes 1920x1080,375x812,414x896
+\`\`\`
+
+### Configuration
+
+**CLI Flag:**
+
+\`\`\`bash
+intellitester run tests/ --test-sizes xs,sm,md,lg,xl
+intellitester run app.workflow.yaml --test-sizes xs,md,xl
+\`\`\`
+
+**Workflow Config:**
+
+\`\`\`yaml
+name: Responsive Tests
+platform: web
+config:
+  web:
+    baseUrl: http://localhost:3000
+    testSizes: ['xs', 'sm', 'md', 'lg', 'xl']
+tests:
+  - file: ./homepage.test.yaml
+  - file: ./navigation.test.yaml
+\`\`\`
+
+**Pipeline Config:**
+
+\`\`\`yaml
+name: Full Responsive Suite
+platform: web
+config:
+  web:
+    testSizes: ['xs', 'md', 'xl']
+workflows:
+  - file: ./auth.workflow.yaml
+  - file: ./dashboard.workflow.yaml
+\`\`\`
+
+### Behavior
+
+- Tests run once per viewport size
+- Results are prefixed with size: \`[xs] homepage.test.yaml\`, \`[md] homepage.test.yaml\`
+- Browser session (cookies, auth state) is shared across sizes
+- Browser context is recreated for each size with new viewport dimensions
+
+---
+
+## Configuration Inheritance
+
+Configuration in IntelliTester follows a cascading override pattern. Lower-level configuration takes precedence over higher levels.
+
+### Priority Order (Highest to Lowest)
+
+1. **Test Config** (\`.test.yaml\`) - Highest priority
+2. **Workflow Config** (\`.workflow.yaml\`)
+3. **Pipeline Config** (\`.pipeline.yaml\`)
+4. **Global Config** (\`intellitester.yaml\`)
+5. **Defaults** - Lowest priority
+
+### What Can Be Configured
+
+| Setting | Test | Workflow | Pipeline | Global |
+|---------|------|----------|----------|--------|
+| \`baseUrl\` | Yes | Yes | Yes | Yes |
+| \`browser\` | Yes | Yes | Yes | Yes |
+| \`headless\` | Yes | Yes | Yes | Yes |
+| \`timeout\` | Yes | Yes | Yes | Yes |
+| \`testSizes\` | - | Yes | Yes | - |
+| \`webServer\` | - | Yes | Yes | Yes |
+| \`appwrite\` | Yes | Yes | Yes | Yes |
+| \`cleanup\` | Yes | Yes | Yes | Yes |
+| \`email\` | Yes | Yes | Yes | Yes |
+
+### Override Examples
+
+**Global config (\`intellitester.yaml\`):**
+
+\`\`\`yaml
+defaults:
+  timeout: 30000
+platforms:
+  web:
+    baseUrl: http://localhost:3000
+    headless: true
+\`\`\`
+
+**Pipeline overrides global:**
+
+\`\`\`yaml
+# pipeline.yaml - uses baseUrl from global, overrides headless
+config:
+  web:
+    headless: false  # Override: run headed for this pipeline
+    testSizes: ['xs', 'md', 'xl']
+\`\`\`
+
+**Workflow overrides pipeline:**
+
+\`\`\`yaml
+# workflow.yaml - overrides baseUrl for this workflow only
+config:
+  web:
+    baseUrl: http://localhost:4000  # Different port for this workflow
+\`\`\`
+
+**Test overrides workflow:**
+
+\`\`\`yaml
+# test.yaml - specific test needs different timeout
+config:
+  defaults:
+    timeout: 60000  # Longer timeout for slow test
+\`\`\`
+
+### Important Notes
+
+- Configuration uses **simple override**, not deep merge
+- If you specify a config section at a lower level, it completely replaces that section from higher levels
+- CLI flags (like \`--headed\`, \`--test-sizes\`) override all YAML configuration
+- Environment variables in config (\`\${VAR_NAME}\`) are resolved at load time
 
 ---
 

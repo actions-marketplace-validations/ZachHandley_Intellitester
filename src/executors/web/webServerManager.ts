@@ -164,12 +164,13 @@ type PackageManager = 'deno' | 'bun' | 'pnpm' | 'yarn' | 'npm';
 
 async function detectPackageManager(cwd: string): Promise<PackageManager> {
   const hasDenoLock = await fs.stat(path.join(cwd, 'deno.lock')).catch(() => null);
-  const hasBunLock = await fs.stat(path.join(cwd, 'bun.lockb')).catch(() => null);
+  const hasBunLockb = await fs.stat(path.join(cwd, 'bun.lockb')).catch(() => null);
+  const hasBunLock = await fs.stat(path.join(cwd, 'bun.lock')).catch(() => null);
   const hasPnpmLock = await fs.stat(path.join(cwd, 'pnpm-lock.yaml')).catch(() => null);
   const hasYarnLock = await fs.stat(path.join(cwd, 'yarn.lock')).catch(() => null);
 
   if (hasDenoLock) return 'deno';
-  if (hasBunLock) return 'bun';
+  if (hasBunLockb || hasBunLock) return 'bun';
   if (hasPnpmLock) return 'pnpm';
   if (hasYarnLock) return 'yarn';
   return 'npm';
