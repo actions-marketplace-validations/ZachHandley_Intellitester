@@ -113,6 +113,198 @@ When execution pauses, you can:
 - Examine selectors and elements
 - Continue execution when ready
 
+### Log Action
+
+Use the `log` action to output debug information during test execution:
+
+```yaml
+steps:
+  # Log a static message
+  - type: log
+    message: "Starting checkout flow"
+
+  # Log JavaScript expression result
+  - type: log
+    eval: "document.title"
+
+  # Log element content
+  - type: log
+    target: { css: ".error-message" }
+    format: html  # text (default), html, or json
+
+  # Log inside iframe
+  - type: log
+    target: { css: ".stripe-error" }
+    frame: { css: "iframe[name='stripe']" }
+```
+
+## AI-Assisted Test Healing
+
+IntelliTester can automatically fix broken selectors using AI when tests fail.
+
+### Configuration
+
+Enable AI healing in `intellitester.config.yaml`:
+
+```yaml
+ai:
+  provider: groq  # anthropic, openai, ollama, groq, openrouter
+  model: llama-3.3-70b-versatile
+  apiKey: ${GROQ_API_KEY}
+  temperature: 0.2
+  maxTokens: 4096
+
+healing:
+  enabled: true
+  maxAttempts: 3  # 1-10
+```
+
+### Supported Providers
+
+| Provider | Env Variable | Example Model |
+|----------|--------------|---------------|
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-20241022` |
+| `openai` | `OPENAI_API_KEY` | `gpt-4o` |
+| `groq` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-3.5-sonnet` |
+| `ollama` | - | `llama3.2` |
+
+### How It Works
+
+When an action fails:
+1. AI analyzes the page HTML and error message
+2. Suggests a new selector (testId, text, role, or css)
+3. Validates the suggestion finds an element
+4. Retries the action with the fixed selector
+
+```
+[FAIL] tap - Element not found: testId="old-button-id"
+
+🔧 Attempting AI-assisted healing (max 3 attempts)...
+✅ AI found fix: {"text": "Submit Order"}
+
+[OK] tap
+```
+
+## Screenshot Evaluation (evaluate)
+
+The `evaluate` action analyzes screenshots to verify page state — no DOM selectors needed. It uses OCR (via tesseract.js WASM) to extract text from the page, with optional AI vision fallback for complex evaluations.
+
+### Basic Usage
+
+```yaml
+steps:
+  # Simple text check (OCR, no API key needed)
+  - type: evaluate
+    expected: "Payment successful"
+
+  # Multiple expected strings (ALL must match)
+  - type: evaluate
+    expected:
+      - "Payment successful"
+      - "Order #"
+
+  # Regex patterns
+  - type: evaluate
+    expected: "Order #\\d{5,}"
+    regex: true
+```
+
+### Evaluation Modes
+
+| Mode | Description | API Key Required |
+|------|-------------|-----------------|
+| `auto` (default) | OCR first, falls back to AI vision if OCR fails | Only if OCR fails |
+| `ocr` | OCR only, deterministic, fast | No |
+| `ai` | AI vision only, handles complex visual states | Yes |
+
+```yaml
+# OCR-only (no API calls)
+- type: evaluate
+  mode: ocr
+  expected: "Success"
+
+# AI vision with custom prompt
+- type: evaluate
+  mode: ai
+  prompt: "Does this page show a green checkmark with a confirmation message?"
+  expected: "Payment successful"
+```
+
+### Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `expected` | string or string[] | (required) | Text to find in the screenshot |
+| `mode` | `ocr` \| `ai` \| `auto` | `auto` | Evaluation strategy |
+| `regex` | boolean | `false` | Treat expected strings as regex patterns |
+| `prompt` | string | (auto) | Custom prompt for AI mode |
+| `waitBefore` | number | `500` | ms to wait before screenshot |
+| `fullPage` | boolean | `true` | Full page or viewport only |
+| `confidence` | number (0-100) | `60` | Min OCR confidence threshold |
+
+### When to Use `evaluate` vs `assert`
+
+- **`assert`** — You can target a specific DOM element with a selector
+- **`evaluate`** — DOM selectors are unreliable: iframes, dynamic content, animations, third-party widgets (Stripe, PayPal), or when you just want to check "does the page say X?"
+
+## Iframe Targeting (frame)
+
+Target elements inside iframes using the `frame` property. Essential for payment forms (Stripe, PayPal), embedded widgets, and third-party integrations.
+
+```yaml
+steps:
+  # Wait for Stripe iframe to load
+  - type: wait
+    target: { css: "div.__PrivateStripeElement iframe" }
+    timeout: 10000
+
+  # Type card number inside iframe
+  - type: type
+    target: { css: "[placeholder='Card number']" }
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: "4242424242424242"
+    delay: 50
+
+  # Type expiry inside iframe
+  - type: type
+    target: { css: "[placeholder='MM / YY']" }
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: "12/34"
+```
+
+**Frame locator properties:**
+
+| Property | Description |
+|----------|-------------|
+| `css` | CSS selector for the iframe element |
+| `name` | Name or id attribute of the iframe |
+| `index` | Zero-based index when multiple iframes match (default: 0) |
+
+**Supported actions:** `tap`, `input`, `type`, `clear`, `hover`, `press`, `focus`, `assert`, `wait`, `waitForSelector`
+
+## Character-by-Character Typing (type)
+
+Use the `type` action for inputs that require character-by-character entry (like Stripe payment fields, autocomplete, or inputs with per-keystroke validation). Unlike `input` which clears first, `type` appends characters one at a time.
+
+```yaml
+steps:
+  # Use 'type' for Stripe (validates each keystroke)
+  - type: type
+    target: { testId: card-number }
+    value: "4242424242424242"
+    delay: 50  # ms between keystrokes (default: 50)
+
+  # Use 'input' for normal form fields (faster, clears first)
+  - type: input
+    target: { testId: email }
+    value: "test@example.com"
+```
+
 ## Fast-Fail Conditions (errorIf)
 
 Use `errorIf` to fail a step immediately when a condition is met, without waiting for timeouts:

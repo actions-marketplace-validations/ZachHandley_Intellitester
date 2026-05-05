@@ -22,6 +22,8 @@ function formatActionName(step: StepResult, index: number): string {
       return `step-${index + 1}: tap element`;
     case 'input':
       return `step-${index + 1}: input text`;
+    case 'type':
+      return `step-${index + 1}: type text`;
     case 'assert':
       return `step-${index + 1}: assert element`;
     case 'wait':
@@ -66,6 +68,10 @@ function formatActionName(step: StepResult, index: number): string {
       return `step-${index + 1}: fail`;
     case 'waitForBranch':
       return `step-${index + 1}: wait for branch`;
+    case 'log':
+      return `step-${index + 1}: log`;
+    case 'evaluate':
+      return `step-${index + 1}: evaluate`;
     default: {
       const _exhaustiveCheck: never = action;
       return `step-${index + 1}: unknown action`;

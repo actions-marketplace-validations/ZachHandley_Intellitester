@@ -12,7 +12,7 @@ import { Command } from 'commander';
 
 import { spawn, type ChildProcess } from 'node:child_process';
 
-import { loadIntellitesterConfig, loadTestDefinition, loadWorkflowDefinition, isWorkflowFile, isPipelineFile, loadPipelineDefinition, collectMissingEnvVars, isWorkflowContent, isPipelineContent } from '../core/loader';
+import { loadIntellitesterConfig, loadTestDefinition, loadWorkflowDefinition, isWorkflowFile, isPipelineFile, loadPipelineDefinition, isWorkflowContent, isPipelineContent } from '../core/loader';
 import { runPipeline } from '../executors/web/pipelineExecutor';
 import type { TestDefinition } from '../core/types';
 import { runWebTest, type BrowserName } from '../executors/web';
@@ -23,7 +23,9 @@ import { loadFailedCleanups, removeFailedCleanup } from '../core/cleanup/persist
 import { loadCleanupHandlers, executeCleanup } from '../core/cleanup/index.js';
 import type { CleanupConfig } from '../core/cleanup/types.js';
 import { validateEnvVars } from './envHelper';
+import { validateFileEnvVars, validateConfigEnvVars } from './envValidation.js';
 import { startTrackingServer, initFileTracking, type TrackingServer } from '../tracking';
+import { type CLIRunOptions, mapCLIToExecutorOptions } from '../core/options.js';
 
 const CONFIG_FILENAME = 'intellitester.config.yaml';
 const GUIDE_FILENAME = 'intellitester_guide.md';
@@ -167,7 +169,26 @@ const buildAndPreview = async (
   const cleanup = () => {
     if (previewProcess && !previewProcess.killed) {
       console.log('\n🛑 Stopping preview server...');
-      previewProcess.kill('SIGTERM');
+      const pid = previewProcess.pid;
+      if (pid) {
+        try {
+          // Kill entire process group (negative PID) to kill shell children too
+          process.kill(-pid, 'SIGTERM');
+          // Force kill after 1 second if still alive
+          setTimeout(() => {
+            try {
+              process.kill(-pid, 'SIGKILL');
+            } catch {
+              // Already dead
+            }
+          }, 1000);
+        } catch {
+          // Fallback to regular kill
+          previewProcess.kill('SIGTERM');
+        }
+      } else {
+        previewProcess.kill('SIGTERM');
+      }
     }
   };
 
@@ -191,10 +212,19 @@ const startPreviewServer = async (
 ): Promise<ChildProcess> => {
   return new Promise((resolve, reject) => {
     console.log(`Starting preview server: ${cmd} ${args.join(' ')}`);
+    // Debug: Log tracking env vars
+    if (process.env.INTELLITESTER_SESSION_ID) {
+      console.log(`[Debug] Passing tracking env to preview server:`);
+      console.log(`  SESSION_ID: ${process.env.INTELLITESTER_SESSION_ID}`);
+      console.log(`  TRACK_URL: ${process.env.INTELLITESTER_TRACK_URL || 'not set'}`);
+      console.log(`  TRACK_FILE: ${process.env.INTELLITESTER_TRACK_FILE || 'not set'}`);
+    }
     const child = spawn(cmd, args, {
       cwd,
       stdio: 'pipe',
       shell: true,
+      detached: true, // Create new process group so we can kill all children
+      env: { ...process.env }, // Explicitly pass all env vars
     });
 
     let output = '';
@@ -607,6 +637,26 @@ Type text into an input field. Clears existing content first.
   value: "{{randomUsername}}"
 \`\`\`
 
+#### \`type\`
+Type text character-by-character WITHOUT clearing first. Use for special inputs like Stripe payment fields, autocomplete, or inputs that validate on each keystroke.
+
+\`\`\`yaml
+# Basic character-by-character typing
+- type: type
+  target: { testId: card-number }
+  value: "4242424242424242"
+
+# With custom delay between keystrokes (default: 50ms)
+- type: type
+  target: { css: "[placeholder='Card number']" }
+  value: "4242424242424242"
+  delay: 100
+\`\`\`
+
+**When to use \`type\` vs \`input\`:**
+- Use \`input\` for normal form fields (faster, clears first)
+- Use \`type\` for special inputs like Stripe, password strength meters, or autocomplete fields
+
 #### \`clear\`
 Clear the contents of an input field.
 
@@ -677,10 +727,10 @@ Press a keyboard key.
 # Common keys: Enter, Tab, Escape, ArrowDown, ArrowUp, Backspace, Delete
 \`\`\`
 
-### Assertion Actions
+### Assertion & Evaluation Actions
 
 #### \`assert\`
-Assert that an element exists or contains expected text.
+Assert that an element exists or contains expected text. Uses DOM selectors.
 
 \`\`\`yaml
 # Assert element exists
@@ -696,6 +746,60 @@ Assert that an element exists or contains expected text.
 - type: assert
   target: { text: "Login successful" }
 \`\`\`
+
+#### \`evaluate\`
+Evaluate page state by analyzing a screenshot. Uses OCR to extract text and/or AI vision to assess visual state. Unlike \`assert\`, this does not require DOM selectors — it reads what's visually on the page.
+
+**Modes:**
+- \`auto\` (default) — Try OCR first, fall back to AI vision if OCR fails or confidence is low
+- \`ocr\` — OCR only, no AI calls, no API key needed
+- \`ai\` — AI vision only, requires a vision-capable AI provider
+
+\`\`\`yaml
+# Simple text check (auto mode: OCR first, AI fallback)
+- type: evaluate
+  expected: "Payment successful"
+
+# Multiple expected strings (ALL must be found)
+- type: evaluate
+  expected:
+    - "Payment successful"
+    - "Order #"
+    - "Thank you"
+
+# Regex pattern matching
+- type: evaluate
+  expected: "Order #\\\\d{5,}"
+  regex: true
+
+# Force AI vision mode with custom prompt
+- type: evaluate
+  mode: ai
+  prompt: "Does this page show a completed Stripe checkout with a green checkmark?"
+  expected: "Payment successful"
+
+# OCR-only (no AI fallback, no API key needed)
+- type: evaluate
+  mode: ocr
+  expected: "Payment successful"
+  confidence: 70
+\`\`\`
+
+**Properties:**
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| \`expected\` | string or string[] | (required) | Text to find in the screenshot |
+| \`mode\` | \`ocr\` \\| \`ai\` \\| \`auto\` | \`auto\` | Evaluation strategy |
+| \`regex\` | boolean | \`false\` | Treat expected strings as regex patterns |
+| \`prompt\` | string | (auto-generated) | Custom prompt for AI mode |
+| \`waitBefore\` | number | \`500\` | ms to wait before screenshot for visual stability |
+| \`fullPage\` | boolean | \`true\` | Capture full page or just viewport |
+| \`confidence\` | number (0-100) | \`60\` | Min OCR confidence; below this, falls back to AI in auto mode |
+
+**When to use \`evaluate\` vs \`assert\`:**
+- Use \`assert\` when you can target a specific DOM element
+- Use \`evaluate\` when DOM selectors are unreliable (iframes, dynamic content, animations, third-party widgets like Stripe)
 
 ### Wait Actions
 
@@ -856,6 +960,40 @@ Explicitly fail the test with a custom message.
   message: "This feature is not implemented yet"
 \`\`\`
 
+#### \`log\`
+Log messages, JavaScript expression results, or element content for debugging.
+
+\`\`\`yaml
+# Log a static message (supports variable interpolation)
+- type: log
+  message: "Starting checkout with user \${EMAIL}"
+
+# Evaluate JavaScript in page context
+- type: log
+  eval: "document.title"
+
+# Log element text content
+- type: log
+  target: { css: ".error-message" }
+
+# Log element HTML content
+- type: log
+  target: { testId: user-profile }
+  format: html  # text (default), html, or json
+
+# Log inside iframe
+- type: log
+  target: { css: ".stripe-error" }
+  frame:
+    css: "iframe[name='stripe']"
+  format: text
+\`\`\`
+
+**Format options:**
+- \`text\` (default) - Element's \`textContent\`
+- \`html\` - Element's \`innerHTML\`
+- \`json\` - Attempt to parse text as JSON and pretty-print
+
 ---
 
 ## Target Selectors
@@ -930,6 +1068,125 @@ target:
   testId: modal
   text: Confirm
 \`\`\`
+
+---
+
+## Iframe Targeting with \`frame\`
+
+Many actions support a \`frame\` property to target elements inside iframes. This is essential for payment forms (Stripe, PayPal), embedded widgets, and third-party integrations.
+
+### Frame Locator Properties
+
+| Property | Description |
+|----------|-------------|
+| \`css\` | CSS selector for the iframe element |
+| \`name\` | Name or id attribute of the iframe |
+| \`index\` | Zero-based index when multiple iframes match (default: 0) |
+
+### Basic Usage
+
+\`\`\`yaml
+# Target element inside an iframe by CSS selector
+- type: type
+  target: { css: "[placeholder='Card number']" }
+  frame:
+    css: "iframe.payment-frame"
+  value: "4242424242424242"
+
+# Target iframe by name attribute
+- type: input
+  target: { testId: email-field }
+  frame:
+    name: checkout-iframe
+  value: "test@example.com"
+
+# When multiple iframes match, use index
+- type: type
+  target: { css: "input" }
+  frame:
+    css: "div.__PrivateStripeElement iframe"
+    index: 0
+  value: "4242424242424242"
+\`\`\`
+
+### Supported Actions with \`frame\`
+
+These actions support the \`frame\` property:
+- \`tap\` - Click inside iframe
+- \`input\` - Fill text inside iframe
+- \`type\` - Type character-by-character inside iframe
+- \`clear\` - Clear input inside iframe
+- \`hover\` - Hover element inside iframe
+- \`press\` - Press key inside iframe
+- \`focus\` - Focus element inside iframe
+- \`assert\` - Assert element inside iframe
+- \`wait\` - Wait for element inside iframe
+- \`waitForSelector\` - Wait for element state inside iframe
+
+### Stripe Checkout Example
+
+\`\`\`yaml
+name: Stripe Checkout
+platform: web
+variables:
+  CARD_NUMBER: "4242424242424242"
+  CARD_EXPIRY: "12/34"
+  CARD_CVC: "123"
+steps:
+  - type: navigate
+    value: /checkout
+
+  # Wait for Stripe iframe to load
+  - type: wait
+    target:
+      css: "div.__PrivateStripeElement iframe"
+    timeout: 10000
+
+  # Type card number (character-by-character for Stripe validation)
+  - type: type
+    target:
+      css: "[placeholder='Card number']"
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: "\${CARD_NUMBER}"
+    delay: 50
+
+  # Type expiry
+  - type: type
+    target:
+      css: "[placeholder='MM / YY']"
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: "\${CARD_EXPIRY}"
+
+  # Type CVC
+  - type: type
+    target:
+      css: "[placeholder='CVC']"
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: "\${CARD_CVC}"
+
+  # Submit (on main page, not in iframe)
+  - type: tap
+    target: { testId: pay-button }
+
+  - type: assert
+    target: { text: "Payment successful" }
+\`\`\`
+
+### Common Iframe Selectors
+
+| Service | Typical Selector |
+|---------|------------------|
+| Stripe Elements | \`div.__PrivateStripeElement iframe\` |
+| Stripe Checkout | \`iframe[name*='stripe']\` |
+| PayPal | \`iframe[name*='paypal']\` |
+| reCAPTCHA | \`iframe[title*='reCAPTCHA']\` |
+| YouTube | \`iframe[src*='youtube.com']\` |
 
 ---
 
@@ -1469,6 +1726,121 @@ steps:
     value: "100-500"
 \`\`\`
 
+### Payment with Stripe
+
+\`\`\`yaml
+name: Stripe Payment
+platform: web
+variables:
+  # Stripe test card numbers:
+  # 4242424242424242 - Succeeds
+  # 4000000000000002 - Declined
+  CARD_NUMBER: "4242424242424242"
+  CARD_EXPIRY: "12/34"
+  CARD_CVC: "123"
+steps:
+  - type: navigate
+    value: /checkout
+
+  # Wait for Stripe to initialize
+  - type: wait
+    target: { css: "div.__PrivateStripeElement iframe" }
+    timeout: 10000
+
+  # Fill card details (use 'type' not 'input' for Stripe)
+  - type: type
+    target: { css: "[placeholder='Card number']" }
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: \${CARD_NUMBER}
+    delay: 50
+
+  - type: type
+    target: { css: "[placeholder='MM / YY']" }
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: \${CARD_EXPIRY}
+
+  - type: type
+    target: { css: "[placeholder='CVC']" }
+    frame:
+      css: "div.__PrivateStripeElement iframe"
+      index: 0
+    value: \${CARD_CVC}
+
+  # Submit payment
+  - type: tap
+    target: { testId: submit-payment }
+
+  # Verify success using screenshot evaluation (no DOM selectors needed)
+  - type: evaluate
+    expected: "Payment successful"
+    waitBefore: 2000
+\`\`\`
+
+---
+
+## AI-Assisted Test Healing
+
+IntelliTester can automatically fix broken selectors using AI when tests fail. This is useful when UI changes cause selectors to break.
+
+### Configuration
+
+Enable AI healing in \`intellitester.config.yaml\`:
+
+\`\`\`yaml
+ai:
+  # Choose your provider: anthropic, openai, ollama, groq, openrouter
+  provider: groq
+  model: llama-3.3-70b-versatile
+  apiKey: \${GROQ_API_KEY}  # Or use env vars directly
+  temperature: 0.2
+  maxTokens: 4096
+
+healing:
+  enabled: true
+  maxAttempts: 3  # 1-10, how many AI attempts per failure
+\`\`\`
+
+### Supported Providers
+
+| Provider | Env Variable | Example Model |
+|----------|--------------|---------------|
+| \`anthropic\` | \`ANTHROPIC_API_KEY\` | \`claude-3-5-sonnet-20241022\` |
+| \`openai\` | \`OPENAI_API_KEY\` | \`gpt-4o\` |
+| \`groq\` | \`GROQ_API_KEY\` | \`llama-3.3-70b-versatile\` |
+| \`openrouter\` | \`OPENROUTER_API_KEY\` | \`anthropic/claude-3.5-sonnet\` |
+| \`ollama\` | - | \`llama3.2\` |
+
+### How It Works
+
+1. When an action fails (e.g., element not found)
+2. AI analyzes the page HTML and error message
+3. AI suggests a new selector (testId, text, role, or css)
+4. IntelliTester validates the suggestion actually finds an element
+5. If valid, retries the action with the new selector
+
+### Example Output
+
+\`\`\`
+[FAIL] tap - Element not found: testId="old-button-id"
+
+🔧 Attempting AI-assisted healing (max 3 attempts)...
+✅ AI found fix: {"text": "Submit Order"}
+
+[OK] tap
+\`\`\`
+
+### Selector Priority
+
+AI prefers selectors in this order:
+1. \`testId\` - Most stable
+2. \`text\` - Good for buttons, links
+3. \`role\` + \`name\` - Good for accessible elements
+4. \`css\` - Last resort, more fragile
+
 ---
 
 Generated by IntelliTester v1.0.0
@@ -1493,12 +1865,18 @@ platforms:
     baseUrl: http://localhost:3000
     headless: true
 
+# AI configuration - supports: anthropic, openai, ollama, groq, openrouter
 ai:
   provider: anthropic
   model: claude-3-5-sonnet-20241022
   apiKey: \${ANTHROPIC_API_KEY}
   temperature: 0
   maxTokens: 4096
+
+# AI-assisted test healing - automatically fix broken selectors
+healing:
+  enabled: false  # Set to true to enable
+  maxAttempts: 3
 
 email:
   provider: inbucket
@@ -1569,27 +1947,16 @@ const runTestCommand = async (
   const testContent = await fs.readFile(absoluteTarget, 'utf8');
   const parsedTest = parse(testContent);
 
-  const hasConfigFile = await fileExists(CONFIG_FILENAME);
-  let parsedConfig: unknown = undefined;
-  if (hasConfigFile) {
-    const configContent = await fs.readFile(CONFIG_FILENAME, 'utf8');
-    parsedConfig = parse(configContent);
-  }
-
-  // Collect missing env vars from both config and test
-  const configMissing = parsedConfig ? collectMissingEnvVars(parsedConfig) : [];
-  const testMissing = collectMissingEnvVars(parsedTest);
-  const allMissing = [...new Set([...configMissing, ...testMissing])];
-
-  if (allMissing.length > 0) {
-    const projectRoot = await findProjectRoot(absoluteTarget);
-    const canContinue = await validateEnvVars(allMissing, projectRoot || process.cwd());
-    if (!canContinue) {
-      process.exit(1);
-    }
+  const canContinue = await validateFileEnvVars({
+    filePath: absoluteTarget,
+    parsedContent: parsedTest,
+  });
+  if (!canContinue) {
+    process.exit(1);
   }
 
   // Now load and validate with schemas
+  const hasConfigFile = await fileExists(CONFIG_FILENAME);
   const test = await loadTestDefinition(absoluteTarget);
   const config = hasConfigFile ? await loadIntellitesterConfig(CONFIG_FILENAME) : undefined;
 
@@ -1609,28 +1976,41 @@ const runTestCommand = async (
     `Running ${path.basename(absoluteTarget)} on web (${browser}${modeFlags.length > 0 ? ', ' + modeFlags.join(', ') : ''})`,
   );
 
+  // Pass aiConfig if interactive mode OR healing is enabled (check both global and test-level config)
+  const healingEnabled = config?.healing?.enabled === true || test.config?.healing?.enabled === true;
+  const needsAi = interactive || healingEnabled;
+
+  // Resolve AI config: global takes priority, test-level as fallback
+  const resolvedAiConfig = config?.ai ?? test.config?.ai;
+
   const result = await runWebTest(test, {
     baseUrl,
     headed,
     browser,
-    defaultTimeoutMs: config?.defaults?.timeout,
+    defaultTimeoutMs: config?.defaults?.timeout ?? test.config?.defaults?.timeout,
     webServer: !skipWebServer && config?.webServer ? config.webServer : undefined,
     debug,
     interactive,
-    aiConfig: interactive ? config?.ai : undefined,
+    aiConfig: needsAi ? resolvedAiConfig : undefined,
     sessionId: options.sessionId,
     trackDir: options.trackDir,
     testSizes: options.testSizes as ('xs' | 'sm' | 'md' | 'lg' | 'xl')[] | undefined,
+    healing: healingEnabled ? {
+      enabled: true,
+      maxAttempts: config?.healing?.maxAttempts ?? test.config?.healing?.maxAttempts ?? 3,
+    } : undefined,
+    onStepComplete: (step) => {
+      const label = `[${step.status === 'passed' ? 'OK' : 'FAIL'}] ${step.action.type}`;
+      if (step.error) {
+        console.error(`${label} - ${step.error}`);
+      } else if (step.logOutput) {
+        console.log(label);
+        console.log(`  ${step.logOutput}`);
+      } else {
+        console.log(label);
+      }
+    },
   });
-
-  for (const step of result.steps) {
-    const label = `[${step.status === 'passed' ? 'OK' : 'FAIL'}] ${step.action.type}`;
-    if (step.error) {
-      console.error(`${label} - ${step.error}`);
-    } else {
-      console.log(label);
-    }
-  }
 
   if (result.status === 'failed') {
     process.exitCode = 1;
@@ -1659,17 +2039,9 @@ const generateCommand = async (
   }
 
   // Validate environment variables in config
-  const { parse } = await import('yaml');
-  const configContent = await fs.readFile(CONFIG_FILENAME, 'utf8');
-  const parsedConfig = parse(configContent);
-  const configMissing = collectMissingEnvVars(parsedConfig);
-
-  if (configMissing.length > 0) {
-    const projectRoot = await findProjectRoot(CONFIG_FILENAME);
-    const canContinue = await validateEnvVars(configMissing, projectRoot || process.cwd());
-    if (!canContinue) {
-      process.exit(1);
-    }
+  const canContinue = await validateConfigEnvVars();
+  if (!canContinue) {
+    process.exit(1);
   }
 
   const config = await loadIntellitesterConfig(CONFIG_FILENAME);
@@ -1710,19 +2082,7 @@ const generateCommand = async (
   }
 };
 
-interface RunOptions {
-  visible?: boolean;
-  browser?: BrowserName;
-  interactive?: boolean;
-  debug?: boolean;
-  sessionId?: string;
-  trackDir?: string;
-  testSizes?: string[];
-  skipTrackingSetup?: boolean;
-  skipWebServerStart?: boolean;
-}
-
-const runWorkflowCommand = async (file: string, options: RunOptions): Promise<void> => {
+const runWorkflowCommand = async (file: string, options: CLIRunOptions): Promise<void> => {
   const workflowPath = path.resolve(file);
 
   if (!(await fileExists(workflowPath))) {
@@ -1740,42 +2100,25 @@ const runWorkflowCommand = async (file: string, options: RunOptions): Promise<vo
   const workflowContent = await fs.readFile(workflowPath, 'utf8');
   const parsedWorkflow = parse(workflowContent);
 
-  const hasConfigFile = await fileExists(CONFIG_FILENAME);
-  let parsedConfig: unknown = undefined;
-  if (hasConfigFile) {
-    const configContent = await fs.readFile(CONFIG_FILENAME, 'utf8');
-    parsedConfig = parse(configContent);
-  }
-
-  // Collect missing env vars from both config and workflow
-  const configMissing = parsedConfig ? collectMissingEnvVars(parsedConfig) : [];
-  const workflowMissing = collectMissingEnvVars(parsedWorkflow);
-  const allMissing = [...new Set([...configMissing, ...workflowMissing])];
-
-  if (allMissing.length > 0) {
-    const projectRoot = await findProjectRoot(workflowPath);
-    const canContinue = await validateEnvVars(allMissing, projectRoot || process.cwd());
-    if (!canContinue) {
-      process.exit(1);
-    }
+  const canContinue = await validateFileEnvVars({
+    filePath: workflowPath,
+    parsedContent: parsedWorkflow,
+  });
+  if (!canContinue) {
+    process.exit(1);
   }
 
   // Now load and validate with schemas
   const workflow = await loadWorkflowDefinition(workflowPath);
 
   // Load config to get AI settings (for interactive mode)
+  const hasConfigFile = await fileExists(CONFIG_FILENAME);
   const config = hasConfigFile ? await loadIntellitesterConfig(CONFIG_FILENAME) : undefined;
 
   const result = await runWorkflow(workflow, workflowPath, {
-    headed: options.visible,
-    browser: options.browser,
-    interactive: options.interactive,
-    debug: options.debug,
+    ...mapCLIToExecutorOptions(options),
     aiConfig: config?.ai,
     webServer: config?.webServer,
-    sessionId: options.sessionId,
-    trackDir: options.trackDir,
-    testSizes: options.testSizes as ('xs' | 'sm' | 'md' | 'lg' | 'xl')[] | undefined,
   });
 
   // Print results
@@ -1801,7 +2144,7 @@ const runWorkflowCommand = async (file: string, options: RunOptions): Promise<vo
   process.exit(result.status === 'passed' ? 0 : 1);
 };
 
-const runPipelineCommand = async (file: string, options: RunOptions): Promise<void> => {
+const runPipelineCommand = async (file: string, options: CLIRunOptions): Promise<void> => {
   const pipelinePath = path.resolve(file);
 
   if (!(await fileExists(pipelinePath))) {
@@ -1819,41 +2162,18 @@ const runPipelineCommand = async (file: string, options: RunOptions): Promise<vo
   const pipelineContent = await fs.readFile(pipelinePath, 'utf8');
   const parsedPipeline = parse(pipelineContent);
 
-  const hasConfigFile = await fileExists(CONFIG_FILENAME);
-  let parsedConfig: unknown = undefined;
-  if (hasConfigFile) {
-    const configContent = await fs.readFile(CONFIG_FILENAME, 'utf8');
-    parsedConfig = parse(configContent);
-  }
-
-  // Collect missing env vars from both config and pipeline
-  const configMissing = parsedConfig ? collectMissingEnvVars(parsedConfig) : [];
-  const pipelineMissing = collectMissingEnvVars(parsedPipeline);
-  const allMissing = [...new Set([...configMissing, ...pipelineMissing])];
-
-  if (allMissing.length > 0) {
-    const projectRoot = await findProjectRoot(pipelinePath);
-    const canContinue = await validateEnvVars(allMissing, projectRoot || process.cwd());
-    if (!canContinue) {
-      process.exit(1);
-    }
+  const canContinue = await validateFileEnvVars({
+    filePath: pipelinePath,
+    parsedContent: parsedPipeline,
+  });
+  if (!canContinue) {
+    process.exit(1);
   }
 
   // Now load and validate with schemas
   const pipeline = await loadPipelineDefinition(pipelinePath);
 
-  // Load config to get AI settings (for interactive mode)
-  const _config = hasConfigFile ? await loadIntellitesterConfig(CONFIG_FILENAME) : undefined;
-
-  const result = await runPipeline(pipeline, pipelinePath, {
-    headed: options.visible,
-    browser: options.browser,
-    interactive: options.interactive,
-    debug: options.debug,
-    sessionId: options.sessionId,
-    trackDir: options.trackDir,
-    testSizes: options.testSizes as ('xs' | 'sm' | 'md' | 'lg' | 'xl')[] | undefined,
-  });
+  const result = await runPipeline(pipeline, pipelinePath, mapCLIToExecutorOptions(options));
 
   // Print results
   console.log(`\nPipeline: ${pipeline.name}`);
@@ -2019,6 +2339,24 @@ const main = async (): Promise<void> => {
             // Mark CLI as owner of tracking resources
             process.env.INTELLITESTER_TRACKING_OWNER = 'cli';
             cliOwnsTracking = true;
+
+            // Write tracking env vars to .env file so tools like wrangler can access them
+            // (wrangler reads from .env file, not process.env)
+            const envPath = path.join(previewCwd, '.env');
+            const trackingEnvLines = [
+              '',
+              '# Intellitester tracking (auto-generated, will be cleaned up)',
+              `INTELLITESTER_SESSION_ID=${sessionId}`,
+              process.env.INTELLITESTER_TRACK_URL ? `INTELLITESTER_TRACK_URL=${process.env.INTELLITESTER_TRACK_URL}` : '',
+              `INTELLITESTER_TRACK_FILE=${process.env.INTELLITESTER_TRACK_FILE}`,
+            ].filter(Boolean).join('\n') + '\n';
+
+            try {
+              await fs.appendFile(envPath, trackingEnvLines);
+              console.log('Added tracking env vars to .env file');
+            } catch (error) {
+              console.warn('Failed to write tracking env vars to .env file:', error);
+            }
           }
 
           const { cleanup } = await buildAndPreview(config, previewCwd, options.freshBuild);
@@ -2031,7 +2369,7 @@ const main = async (): Promise<void> => {
           ? options.testSizes.split(',').map(s => s.trim()).filter(s => validSizes.includes(s))
           : undefined;
 
-        const runOpts: RunOptions = {
+        const runOpts: CLIRunOptions = {
           visible: options.visible,
           browser,
           interactive: options.interactive,

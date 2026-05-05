@@ -31,20 +31,20 @@ import type { AIConfig } from '../../ai/types';
 import { loadCleanupHandlers, executeCleanup } from '../../core/cleanup/index.js';
 import type { CleanupConfig } from '../../core/cleanup/types.js';
 import type { WorkflowConfig } from '../../core/workflowSchema.js';
+import type { ExecutorOptions } from '../../core/options.js';
+import { evaluate, terminateOCRWorker } from '../../ai/evaluator';
 
-export interface WorkflowOptions {
-  headed?: boolean;
-  browser?: BrowserName;
-  interactive?: boolean;
-  debug?: boolean;
+/**
+ * Options for running a workflow.
+ * Extends base ExecutorOptions with workflow-specific options.
+ */
+export interface WorkflowOptions extends ExecutorOptions {
+  /** AI configuration for interactive/healing mode */
   aiConfig?: AIConfig;
+  /** Web server configuration */
   webServer?: WebServerConfig;
-  sessionId?: string;
-  trackDir?: string;
-  baseUrl?: string; // Fallback baseUrl from pipeline config
-  testSizes?: string[]; // Viewport sizes to test (e.g., ['xs', 'md', 'xl'] or ['320x568', '1920x1080'])
-  skipTrackingSetup?: boolean; // If true, reuse tracking setup from CLI (e.g., --preview mode)
-  skipWebServerStart?: boolean; // If true, reuse web server started by CLI
+  /** Fallback baseUrl from pipeline config */
+  baseUrl?: string;
 }
 
 export interface WorkflowWithContextOptions extends WorkflowOptions {
@@ -83,6 +83,27 @@ export interface ExecutionContext {
 }
 
 const defaultScreenshotDir = path.join(process.cwd(), 'artifacts', 'screenshots');
+
+const interpolateTrackMetadata = (
+  value: unknown,
+  variables: Map<string, string>
+): unknown => {
+  if (typeof value === 'string') {
+    return interpolateVariables(value, variables);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => interpolateTrackMetadata(entry, variables));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        interpolateTrackMetadata(entry, variables),
+      ])
+    );
+  }
+  return value;
+};
 
 const getBrowser = (browser: BrowserName): BrowserType => {
   switch (browser) {
@@ -178,8 +199,9 @@ async function runTestInWorkflow(
     stepExtras?: Record<string, unknown>
   ): IntegrationTrackedResource | null => {
     if (!('track' in action)) return null;
-    const track = (action as { track?: Record<string, unknown> }).track;
-    if (!track || typeof track !== 'object') return null;
+    const rawTrack = (action as { track?: Record<string, unknown> }).track;
+    if (!rawTrack || typeof rawTrack !== 'object') return null;
+    const track = interpolateTrackMetadata(rawTrack, context.variables) as Record<string, unknown>;
     if (typeof track.type !== 'string' || typeof track.id !== 'string') return null;
 
     const { includeStepContext, ...rest } = track;
@@ -532,6 +554,8 @@ async function runTestInWorkflow(
                   }
                   break;
                 }
+                case 'evaluate':
+                  throw new Error('Evaluate action in nested context (conditional/waitForBranch) is not yet supported');
                 case 'fail': {
                   throw new Error(nestedAction.message);
                 }
@@ -540,6 +564,58 @@ async function runTestInWorkflow(
               }
             }
             break;
+          }
+          case 'evaluate': {
+            const evalAction = action as Extract<Action, { type: 'evaluate' }>;
+            // Wait for visual stability
+            await page.waitForLoadState('domcontentloaded').catch(() => {});
+            await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+            const waitBefore = evalAction.waitBefore ?? 500;
+            if (waitBefore > 0) {
+              await page.waitForTimeout(waitBefore);
+            }
+
+            // Take screenshot
+            const evalScreenshotPath = path.join(screenshotDir, `evaluate-step-${index + 1}.png`);
+            const screenshotBuffer = await page.screenshot({
+              path: evalScreenshotPath,
+              fullPage: evalAction.fullPage ?? true,
+            });
+
+            // Interpolate expected values
+            const expectedRaw = evalAction.expected;
+            const expectedArray = Array.isArray(expectedRaw)
+              ? expectedRaw.map(e => interpolate(e))
+              : [interpolate(expectedRaw)];
+
+            // Run evaluation
+            const evalResult = await evaluate({
+              expected: expectedArray,
+              mode: evalAction.mode ?? 'auto',
+              regex: evalAction.regex ?? false,
+              prompt: evalAction.prompt,
+              confidence: evalAction.confidence ?? 60,
+              screenshotBuffer,
+              screenshotPath: evalScreenshotPath,
+              aiConfig: options.aiConfig,
+            });
+
+            if (debugMode) {
+              console.log(`  [DEBUG] Evaluate result: ${evalResult.passed ? 'PASSED' : 'FAILED'} (${evalResult.mode})`);
+              console.log(`  [DEBUG] Reason: ${evalResult.reason}`);
+            }
+
+            if (!evalResult.passed) {
+              throw new Error(`Evaluate failed (${evalResult.mode} mode): ${evalResult.reason}`);
+            }
+
+            results.push({
+              action,
+              status: 'passed',
+              screenshotPath: evalScreenshotPath,
+              logOutput: `Evaluate passed (${evalResult.mode}): ${evalResult.reason}`,
+            });
+            continue;
           }
           case 'fail': {
             throw new Error(action.message);
@@ -649,6 +725,8 @@ async function runTestInWorkflow(
                       }
                       break;
                     }
+                    case 'evaluate':
+                      throw new Error('Evaluate action in nested context (conditional/waitForBranch) is not yet supported');
                     case 'fail': {
                       throw new Error(nestedAction.message);
                     }
@@ -950,15 +1028,24 @@ export function setupAppwriteTracking(page: Page, context: ExecutionContext): vo
  * Provides backwards compatibility by converting old Appwrite config to new cleanup config.
  */
 function inferCleanupConfig(config: WorkflowConfig | undefined): CleanupConfig | undefined {
-  if (!config) return undefined;
+  console.log('[Debug] inferCleanupConfig called');
+  console.log('[Debug] config:', config ? JSON.stringify(config, null, 2) : 'undefined');
+
+  if (!config) {
+    console.log('[Debug] Config is undefined/null, returning undefined');
+    return undefined;
+  }
 
   // Check for new cleanup config first
   if (config.cleanup) {
+    console.log('[Debug] Found config.cleanup, returning it');
     return config.cleanup;
   }
 
   // Backwards compatibility: convert old appwrite config
+  console.log('[Debug] Checking config.appwrite?.cleanup:', config.appwrite?.cleanup);
   if (config.appwrite?.cleanup) {
+    console.log('[Debug] Found config.appwrite.cleanup, returning cleanup config');
     return {
       provider: 'appwrite',
       scanUntracked: true,
@@ -971,6 +1058,7 @@ function inferCleanupConfig(config: WorkflowConfig | undefined): CleanupConfig |
     };
   }
 
+  console.log('[Debug] No cleanup config found, returning undefined');
   return undefined;
 }
 
@@ -1300,6 +1388,8 @@ export async function runWorkflow(
   const webServerConfig = workflow.config?.webServer ?? options.webServer;
   const skipWebServer = options.skipWebServerStart;
 
+  console.log(`[Debug] webServerConfig: ${webServerConfig ? 'set' : 'not set'}, skipWebServer: ${skipWebServer}`);
+
   if (webServerConfig && !skipWebServer) {
     try {
       // Use workflow dir for workflow-defined webServer, process.cwd() for global config
@@ -1476,6 +1566,9 @@ export async function runWorkflow(
     // 8. Cleanup resources using the extensible cleanup system
     let cleanupResult: { success: boolean; deleted: string[]; failed: string[] } | undefined;
 
+    console.log('[Debug] About to check cleanupConfig:', cleanupConfig ? 'truthy' : 'falsy');
+    console.log('[Debug] cleanupConfig value:', cleanupConfig ? JSON.stringify(cleanupConfig, null, 2) : 'undefined');
+
     if (cleanupConfig) {
       // Determine if we should cleanup based on test status
       const appwriteConfig = cleanupConfig.appwrite as { cleanupOnFailure?: boolean } | undefined;
@@ -1586,6 +1679,9 @@ export async function runWorkflow(
     // Close browser
     await browserContext.close();
     await browser.close();
+
+    // Cleanup OCR worker
+    await terminateOCRWorker();
 
     // Only clean up resources we own
     if (ownsTracking) {

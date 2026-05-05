@@ -53,6 +53,18 @@ export const LocatorSchema = z
     { message: 'Locator requires at least one selector or description' },
   );
 
+export const FrameLocatorSchema = z
+  .object({
+    css: z.string().trim().optional().describe('CSS selector for the iframe element'),
+    name: z.string().trim().optional().describe('Name or id attribute of the iframe'),
+    index: z.number().int().nonnegative().optional().describe('Zero-based index when multiple iframes match (default: 0)'),
+  })
+  .describe('Defines how to locate an iframe on the page. Either css or name must be provided.')
+  .refine(
+    (locator) => Boolean(locator.css || locator.name),
+    { message: 'FrameLocator requires css or name' },
+  );
+
 const navigateActionSchema = z.object({
   type: z.literal('navigate'),
   value: nonEmptyString.describe('URL or path to navigate to'),
@@ -61,6 +73,7 @@ const navigateActionSchema = z.object({
 const tapActionSchema = z.object({
   type: z.literal('tap'),
   target: LocatorSchema,
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
   errorIf: errorIfSchema.optional(),
 }).describe('Click or tap on an element');
 
@@ -68,18 +81,30 @@ const inputActionSchema = z.object({
   type: z.literal('input'),
   target: LocatorSchema,
   value: z.string().describe('Text to input (can reference variables with ${VAR_NAME})'),
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
   errorIf: errorIfSchema.optional(),
-}).describe('Input text into a field');
+}).describe('Input text into a field (clears field first)');
+
+const typeActionSchema = z.object({
+  type: z.literal('type'),
+  target: LocatorSchema.optional().describe('Element to type into (if omitted, types into the currently focused element)'),
+  value: z.string().describe('Text to type character-by-character (appends to existing content)'),
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
+  delay: z.number().int().nonnegative().optional().describe('Delay between keystrokes in milliseconds (default: 50)'),
+  errorIf: errorIfSchema.optional(),
+}).describe('Type text character-by-character without clearing (for Stripe, special inputs)');
 
 const clearActionSchema = z.object({
   type: z.literal('clear'),
   target: LocatorSchema,
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
   errorIf: errorIfSchema.optional(),
 }).describe('Clear the contents of an input field');
 
 const hoverActionSchema = z.object({
   type: z.literal('hover'),
   target: LocatorSchema,
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
   errorIf: errorIfSchema.optional(),
 }).describe('Hover over an element');
 
@@ -106,12 +131,14 @@ const pressActionSchema = z.object({
   type: z.literal('press'),
   key: nonEmptyString.describe('Key to press (e.g., Enter, Tab, Escape, ArrowDown)'),
   target: LocatorSchema.optional().describe('Element to focus before pressing key'),
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element or keyboard action'),
   errorIf: errorIfSchema.optional(),
 }).describe('Press a keyboard key');
 
 const focusActionSchema = z.object({
   type: z.literal('focus'),
   target: LocatorSchema,
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
   errorIf: errorIfSchema.optional(),
 }).describe('Focus an element');
 
@@ -119,6 +146,7 @@ const assertActionSchema = z.object({
   type: z.literal('assert'),
   target: LocatorSchema,
   value: z.string().optional().describe('Expected text content'),
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
   errorIf: errorIfSchema.optional(),
 }).describe('Assert that an element exists or contains expected text');
 
@@ -127,6 +155,7 @@ const waitActionSchema = z
     type: z.literal('wait'),
     target: LocatorSchema.optional().describe('Element to wait for'),
     timeout: z.number().int().positive().optional().describe('Time to wait in milliseconds'),
+    frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
     errorIf: errorIfSchema.optional(),
   })
   .describe('Wait for an element or timeout')
@@ -196,19 +225,54 @@ const waitForSelectorActionSchema = z.object({
     .describe('Element state to wait for'),
   timeout: z.number().int().positive().optional()
     .describe('Time to wait in milliseconds'),
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
   errorIf: errorIfSchema.optional(),
 }).describe('Wait for an element to reach a specific state');
+
+const logActionSchema = z.object({
+  type: z.literal('log'),
+  message: z.string().optional().describe('Static message to log (supports ${VAR_NAME} interpolation)'),
+  eval: z.string().optional().describe('JavaScript expression to evaluate in page context'),
+  target: LocatorSchema.optional().describe('Element to extract content from'),
+  frame: FrameLocatorSchema.optional().describe('Iframe context for the target element'),
+  format: z.enum(['text', 'html', 'json']).optional().describe('Output format for element content (default: text)'),
+}).describe('Log a message, evaluate JS, or extract element content for debugging')
+  .refine(
+    (action) => action.message || action.eval || action.target,
+    { message: 'log requires message, eval, or target' },
+  );
 
 const failActionSchema = z.object({
   type: z.literal('fail'),
   message: nonEmptyString.describe('Error message to display when test fails'),
 }).describe('Explicitly fail the test with a custom message');
 
+const evaluateActionSchema = z.object({
+  type: z.literal('evaluate'),
+  expected: z.union([
+    z.string(),
+    z.array(z.string()),
+  ]).describe('Text to find in screenshot (substring or regex)'),
+  mode: z.enum(['ocr', 'ai', 'auto']).optional()
+    .describe('ocr=OCR only, ai=LLM vision only, auto=OCR first then AI fallback (default: auto)'),
+  regex: z.boolean().optional()
+    .describe('Treat expected as regex patterns (default: false)'),
+  prompt: z.string().optional()
+    .describe('Custom prompt for AI mode'),
+  waitBefore: z.number().int().nonnegative().optional()
+    .describe('ms to wait before screenshot for visual stability (default: 500)'),
+  fullPage: z.boolean().optional()
+    .describe('Full page or viewport only (default: true)'),
+  confidence: z.number().min(0).max(100).optional()
+    .describe('Min OCR confidence threshold, below falls back to AI in auto mode (default: 60)'),
+}).describe('Evaluate page state via screenshot analysis (OCR and/or AI vision)');
+
 // Base action schema without conditional (used for nested steps in conditional)
 const BaseActionSchema = z.discriminatedUnion('type', [
   navigateActionSchema,
   tapActionSchema,
   inputActionSchema,
+  typeActionSchema,
   clearActionSchema,
   hoverActionSchema,
   selectActionSchema,
@@ -228,7 +292,9 @@ const BaseActionSchema = z.discriminatedUnion('type', [
   appwriteVerifyEmailActionSchema,
   debugActionSchema,
   waitForSelectorActionSchema,
+  logActionSchema,
   failActionSchema,
+  evaluateActionSchema,
 ]);
 
 const TrackableBaseActionSchema = z.intersection(BaseActionSchema, trackableSchema);
@@ -300,9 +366,10 @@ const appwriteConfigSchema = z.object({
 }).describe('Appwrite backend configuration');
 
 const healingSchema = z.object({
-  enabled: z.boolean().optional().describe('Enable self-healing capabilities'),
+  enabled: z.boolean().optional().describe('Enable AI-assisted test healing on failures'),
+  maxAttempts: z.number().int().min(1).max(10).default(3).describe('Maximum AI healing attempts per failure (default: 3)'),
   strategies: z.array(z.string().trim()).optional().describe('Healing strategies to use'),
-}).describe('Self-healing test configuration');
+}).describe('AI-assisted test healing configuration');
 
 const webServerSchema = z
   .object({
@@ -327,15 +394,29 @@ const aiSourceSchema = z.object({
   extensions: z.array(z.string()).default(['.vue', '.astro', '.tsx', '.jsx', '.svelte']).describe('File extensions to include in source code analysis'),
 }).optional().describe('Source code directories for AI to analyze when generating tests');
 
+const defaultModelForProvider = (provider: string): string => {
+  switch (provider) {
+    case 'anthropic': return 'claude-haiku-4-5-20251001';
+    case 'openrouter': return 'anthropic/claude-haiku-4.5';
+    case 'openai': return 'gpt-4o-mini';
+    case 'groq': return 'llama-3.1-8b-instant';
+    case 'ollama': return 'llama3.2:3b';
+    default: return 'claude-haiku-4-5-20251001';
+  }
+};
+
 const aiConfigSchema = z.object({
-  provider: z.enum(['anthropic', 'openai', 'ollama']).describe('AI provider to use for test generation'),
-  model: nonEmptyString.describe('Model name to use'),
-  apiKey: z.string().trim().optional().describe('API key for the AI provider'),
-  baseUrl: optionalUrl.describe('Base URL for the AI API (required for Ollama)'),
+  provider: z.enum(['anthropic', 'openai', 'ollama', 'groq', 'openrouter']).describe('AI provider to use for test generation'),
+  model: z.string().trim().optional().describe('Model name to use (defaults based on provider if omitted)'),
+  apiKey: z.string().trim().optional().describe('API key for the AI provider (supports ${ENV_VAR} syntax)'),
+  baseUrl: optionalUrl.describe('Base URL for the AI API (required for Ollama, auto-set for groq/openrouter)'),
   temperature: z.number().min(0).max(2).default(0.2).describe('Temperature for AI generation (0 = deterministic, 2 = very creative)'),
   maxTokens: z.number().int().positive().default(4096).describe('Maximum tokens for AI responses'),
   source: aiSourceSchema,
-}).describe('AI configuration for test generation and healing');
+}).transform((val) => ({
+  ...val,
+  model: val.model || defaultModelForProvider(val.provider),
+})).describe('AI configuration for test generation and healing');
 
 // Cleanup discovery configuration
 export const cleanupDiscoverSchema = z.object({
@@ -383,6 +464,8 @@ export const TestConfigSchema = z.object({
   ios: iosConfigSchema.optional(),
   email: emailConfigSchema.optional(),
   appwrite: appwriteConfigSchema.optional(),
+  healing: healingSchema.optional(),
+  ai: aiConfigSchema.optional(),
 }).describe('Test-specific configuration that overrides global settings');
 
 export const TestDefinitionSchema = z.object({
