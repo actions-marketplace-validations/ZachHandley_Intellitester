@@ -44,6 +44,19 @@
             "headless": {
               "description": "Run browser in headless mode",
               "type": "boolean"
+            },
+            "storageState": {
+              "description": "Playwright storageState: file path (string) or inline {cookies, origins} object. Maps to browser.newContext({ storageState }).",
+              "oneOf": [
+                { "type": "string" },
+                {
+                  "type": "object",
+                  "properties": {
+                    "cookies": { "type": "array", "items": {} },
+                    "origins": { "type": "array", "items": {} }
+                  }
+                }
+              ]
             }
           },
           "additionalProperties": false

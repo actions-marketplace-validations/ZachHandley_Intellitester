@@ -96,6 +96,14 @@ export const WebPlatformConfigSchema = z.object({
   /** Viewport sizes to test (Tailwind breakpoints) */
   testSizes: z.array(z.enum(['xs', 'sm', 'md', 'lg', 'xl'])).optional()
     .describe('Viewport sizes to test (Tailwind breakpoints). Tests run once per size.'),
+  /** Playwright storageState: file path (string) or inline {cookies, origins} object */
+  storageState: z.union([
+    z.string(),
+    z.object({
+      cookies: z.array(z.any()).optional(),
+      origins: z.array(z.any()).optional(),
+    }).passthrough(),
+  ]).optional().describe('Playwright storageState: file path (string) or inline {cookies, origins} object. Maps to browser.newContext({ storageState }).'),
 }).describe('Web platform configuration');
 
 export type WebPlatformConfig = z.infer<typeof WebPlatformConfigSchema>;

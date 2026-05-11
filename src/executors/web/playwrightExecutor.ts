@@ -6,6 +6,7 @@ import {
   chromium,
   firefox,
   webkit,
+  type BrowserContextOptions,
   type BrowserType,
   type FrameLocator,
   type Locator as PWLocator,
@@ -45,6 +46,8 @@ export interface WebRunOptions {
   trackDir?: string;
   /** Viewport sizes to test at. Can be predefined ('xs', 'sm', 'md', 'lg', 'xl') or custom 'WxH' format (e.g., '1920x1080'). */
   testSizes?: string[];
+  /** Playwright storageState (cookies/localStorage) to apply on every new context. File path string or inline {cookies, origins} object. */
+  storageState?: BrowserContextOptions['storageState'];
   /** Skip tracking server setup (CLI already owns it) */
   skipTrackingSetup?: boolean;
   /** Skip web server start (CLI already owns it) */
@@ -1339,6 +1342,7 @@ export const runWebTest = async (
 
     const browserContext = await browser.newContext({
       viewport: { width: viewport.width, height: viewport.height },
+      ...(options.storageState ? { storageState: options.storageState } : {}),
     });
     const page = await browserContext.newPage();
     page.setDefaultTimeout(defaultTimeout);
@@ -1723,6 +1727,64 @@ export const runWebTest = async (
               logOutput: `Evaluate passed (${evalResult.mode}): ${evalResult.reason}`,
             });
             options.onStepComplete?.(sizeResults[sizeResults.length - 1], index, test.steps.length);
+            continue;
+          }
+
+          if (action.type === 'saveStorageState') {
+            const saveAction = action as Extract<Action, { type: 'saveStorageState' }>;
+            try {
+              if (saveAction.path) {
+                const resolvedPath = interpolateVariables(saveAction.path, executionContext.variables);
+                await page.context().storageState({ path: resolvedPath });
+                if (debugMode) {
+                  console.log(`[DEBUG] Saved storage state to ${resolvedPath}`);
+                }
+              } else if (saveAction.handler) {
+                const resolvedHandler = interpolateVariables(saveAction.handler, executionContext.variables);
+                const absPath = path.isAbsolute(resolvedHandler) ? resolvedHandler : path.resolve(process.cwd(), resolvedHandler);
+                // Match cleanup loader pattern: prefer .js sibling if a .ts path is given and the .js exists
+                let loadPath = absPath;
+                if (absPath.endsWith('.ts')) {
+                  const jsPath = absPath.replace(/\.ts$/, '.js');
+                  try {
+                    await fs.access(jsPath);
+                    loadPath = jsPath;
+                  } catch {
+                    // Fall through to direct .ts import (requires tsx/ts-node in user's env)
+                  }
+                }
+                const mod = await import(`${loadPath}?t=${Date.now()}`);
+                const fn = (mod.default ?? mod) as (ctx: {
+                  page: typeof page;
+                  context: ReturnType<typeof page.context>;
+                  variables: Map<string, string>;
+                }) => Promise<void> | void;
+                if (typeof fn !== 'function') {
+                  throw new Error(`saveStorageState handler at ${resolvedHandler} did not export a default function`);
+                }
+                await fn({
+                  page,
+                  context: page.context(),
+                  variables: executionContext.variables,
+                });
+                if (debugMode) {
+                  console.log(`[DEBUG] Ran custom saveStorageState handler: ${resolvedHandler}`);
+                }
+              } else {
+                throw new Error('saveStorageState requires either `path` or `handler` (schema should have caught this)');
+              }
+              sizeResults.push({ action, status: 'passed' });
+              options.onStepComplete?.(sizeResults[sizeResults.length - 1], index, test.steps.length);
+              const trackedPayload = buildTrackPayload(action, index);
+              if (trackedPayload) {
+                await trackResource(trackedPayload);
+              }
+            } catch (e) {
+              const errMsg = e instanceof Error ? e.message : String(e);
+              sizeResults.push({ action, status: 'failed', error: errMsg });
+              options.onStepComplete?.(sizeResults[sizeResults.length - 1], index, test.steps.length);
+              throw e;
+            }
             continue;
           }
 

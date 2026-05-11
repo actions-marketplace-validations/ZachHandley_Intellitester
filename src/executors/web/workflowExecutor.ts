@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
   chromium,
   firefox,
   webkit,
+  type BrowserContextOptions,
   type BrowserType,
   type Page,
 } from 'playwright';
@@ -45,6 +47,8 @@ export interface WorkflowOptions extends ExecutorOptions {
   webServer?: WebServerConfig;
   /** Fallback baseUrl from pipeline config */
   baseUrl?: string;
+  /** Playwright storageState (cookies/localStorage) to apply on every new context. File path string or inline {cookies, origins} object. */
+  storageState?: BrowserContextOptions['storageState'];
 }
 
 export interface WorkflowWithContextOptions extends WorkflowOptions {
@@ -359,6 +363,54 @@ async function runTestInWorkflow(
               await trackResource(trackedPayload);
             }
             continue;
+          }
+          case 'saveStorageState': {
+            const saveAction = action as Extract<Action, { type: 'saveStorageState' }>;
+            if (saveAction.path) {
+              const resolvedPath = interpolate(saveAction.path);
+              await page.context().storageState({ path: resolvedPath });
+              if (debugMode) {
+                console.log(`  [DEBUG] Saved storage state to ${resolvedPath}`);
+              }
+            } else if (saveAction.handler) {
+              const resolvedHandler = interpolate(saveAction.handler);
+              const absPath = path.isAbsolute(resolvedHandler) ? resolvedHandler : path.resolve(process.cwd(), resolvedHandler);
+              let loadPath = absPath;
+              if (absPath.endsWith('.ts')) {
+                const jsPath = absPath.replace(/\.ts$/, '.js');
+                try {
+                  await fs.access(jsPath);
+                  loadPath = jsPath;
+                } catch {
+                  // Fall through to .ts (requires tsx/ts-node in user's env)
+                }
+              }
+              const mod = await import(`${loadPath}?t=${Date.now()}`);
+              const fn = (mod.default ?? mod) as (ctx: {
+                page: typeof page;
+                context: ReturnType<typeof page.context>;
+                variables: Map<string, string>;
+              }) => Promise<void> | void;
+              if (typeof fn !== 'function') {
+                throw new Error(`saveStorageState handler at ${resolvedHandler} did not export a default function`);
+              }
+              await fn({
+                page,
+                context: page.context(),
+                variables: context.variables,
+              });
+              if (debugMode) {
+                console.log(`  [DEBUG] Ran custom saveStorageState handler: ${resolvedHandler}`);
+              }
+            } else {
+              throw new Error('saveStorageState requires either `path` or `handler` (schema should have caught this)');
+            }
+            results.push({ action, status: 'passed' });
+            const trackedPayload = buildTrackPayload(action, index);
+            if (trackedPayload) {
+              await trackResource(trackedPayload);
+            }
+            break;
           }
           case 'setVar': {
             let value: string;
@@ -1464,8 +1516,11 @@ export async function runWorkflow(
   let _lastCleanupResult: { success: boolean; deleted: string[]; failed: string[] } | undefined;
 
   // Create browser context (will be replaced for each size)
+  const storageState: BrowserContextOptions['storageState'] =
+    options.storageState ?? (workflow.config?.web?.storageState as BrowserContextOptions['storageState']);
   let browserContext = await browser.newContext({
     viewport: viewportSizes[0].viewport,
+    ...(storageState ? { storageState } : {}),
   });
   let page = await browserContext.newPage();
   page.setDefaultTimeout(30000);
@@ -1502,7 +1557,10 @@ export async function runWorkflow(
       // Create new browser context for each size (after first)
       if (sizeIndex > 0) {
         await browserContext.close();
-        browserContext = await browser.newContext({ viewport });
+        browserContext = await browser.newContext({
+          viewport,
+          ...(storageState ? { storageState } : {}),
+        });
         page = await browserContext.newPage();
         page.setDefaultTimeout(30000);
 

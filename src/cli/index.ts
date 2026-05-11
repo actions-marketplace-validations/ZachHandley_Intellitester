@@ -1995,6 +1995,7 @@ const runTestCommand = async (
     sessionId: options.sessionId,
     trackDir: options.trackDir,
     testSizes: options.testSizes as ('xs' | 'sm' | 'md' | 'lg' | 'xl')[] | undefined,
+    storageState: (test.config?.web?.storageState ?? config?.platforms?.web?.storageState) as import('playwright').BrowserContextOptions['storageState'] | undefined,
     healing: healingEnabled ? {
       enabled: true,
       maxAttempts: config?.healing?.maxAttempts ?? test.config?.healing?.maxAttempts ?? 3,
