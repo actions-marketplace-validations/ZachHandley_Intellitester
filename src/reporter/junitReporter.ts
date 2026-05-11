@@ -72,6 +72,8 @@ function formatActionName(step: StepResult, index: number): string {
       return `step-${index + 1}: log`;
     case 'evaluate':
       return `step-${index + 1}: evaluate`;
+    case 'saveStorageState':
+      return `step-${index + 1}: save storage state`;
     default: {
       const _exhaustiveCheck: never = action;
       return `step-${index + 1}: unknown action`;

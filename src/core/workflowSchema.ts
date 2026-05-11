@@ -16,6 +16,13 @@ const workflowWebConfigSchema = z.object({
   headless: z.boolean().optional().describe('Run browser in headless mode'),
   testSizes: z.array(z.enum(['xs', 'sm', 'md', 'lg', 'xl'])).optional()
     .describe('Viewport sizes to test (Tailwind breakpoints). Tests run once per size.'),
+  storageState: z.union([
+    z.string(),
+    z.object({
+      cookies: z.array(z.any()).optional(),
+      origins: z.array(z.any()).optional(),
+    }).passthrough(),
+  ]).optional().describe('Playwright storageState: file path (string) or inline {cookies, origins} object. Maps to browser.newContext({ storageState }).'),
 }).describe('Web platform configuration for the workflow');
 
 // Workflow-specific Appwrite config

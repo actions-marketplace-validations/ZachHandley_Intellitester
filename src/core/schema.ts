@@ -267,6 +267,18 @@ const evaluateActionSchema = z.object({
     .describe('Min OCR confidence threshold, below falls back to AI in auto mode (default: 60)'),
 }).describe('Evaluate page state via screenshot analysis (OCR and/or AI vision)');
 
+const saveStorageStateActionSchema = z.object({
+  type: z.literal('saveStorageState'),
+  path: nonEmptyString.optional()
+    .describe('File path (relative to cwd) to write Playwright storageState JSON. Calls page.context().storageState({ path }).'),
+  handler: nonEmptyString.optional()
+    .describe('Path (relative to cwd) to a TS/JS file exporting `default async ({ page, context, variables }) => void`. Called instead of the built-in writer for custom serialization (e.g., to Python pickle, SQLite, S3, ...).'),
+}).describe('Persist the current browser context state (cookies, localStorage) for reuse via config.web.storageState in subsequent runs.')
+  .refine(
+    (action) => action.path || action.handler,
+    { message: 'saveStorageState requires either `path` or `handler`' },
+  );
+
 // Base action schema without conditional (used for nested steps in conditional)
 const BaseActionSchema = z.discriminatedUnion('type', [
   navigateActionSchema,
@@ -284,6 +296,7 @@ const BaseActionSchema = z.discriminatedUnion('type', [
   waitActionSchema,
   scrollActionSchema,
   screenshotActionSchema,
+  saveStorageStateActionSchema,
   setVarActionSchema,
   emailWaitForActionSchema,
   emailExtractCodeActionSchema,
@@ -340,6 +353,13 @@ const webConfigSchema = z.object({
   browser: z.string().trim().optional().describe('Browser to use for testing'),
   headless: z.boolean().optional().describe('Run browser in headless mode'),
   timeout: z.number().int().positive().optional().describe('Timeout in milliseconds for web actions'),
+  storageState: z.union([
+    z.string(),
+    z.object({
+      cookies: z.array(z.any()).optional(),
+      origins: z.array(z.any()).optional(),
+    }).passthrough(),
+  ]).optional().describe('Playwright storageState: file path (string) or inline {cookies, origins} object. Maps to browser.newContext({ storageState }).'),
 }).describe('Web platform configuration');
 
 const androidConfigSchema = z.object({

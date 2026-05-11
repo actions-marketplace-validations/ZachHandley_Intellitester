@@ -1935,6 +1935,7 @@ const runTestCommand = async (
     sessionId?: string;
     trackDir?: string;
     testSizes?: string[];
+    storageState?: string;
   },
 ): Promise<void> => {
   const absoluteTarget = path.resolve(target);
@@ -1995,6 +1996,33 @@ const runTestCommand = async (
     sessionId: options.sessionId,
     trackDir: options.trackDir,
     testSizes: options.testSizes as ('xs' | 'sm' | 'md' | 'lg' | 'xl')[] | undefined,
+    storageState: (() => {
+      type SS = import('playwright').BrowserContextOptions['storageState'];
+      // CLI flag wins, resolved against cwd.
+      if (options.storageState) {
+        return path.isAbsolute(options.storageState)
+          ? options.storageState
+          : path.resolve(process.cwd(), options.storageState);
+      }
+      // Test config (resolved against test YAML dir).
+      const testVal = test.config?.web?.storageState as SS | undefined;
+      if (testVal !== undefined) {
+        if (typeof testVal === 'string') {
+          return path.isAbsolute(testVal) ? testVal : path.resolve(path.dirname(absoluteTarget), testVal);
+        }
+        return testVal;
+      }
+      // Global intellitester.config.yaml platforms.web.storageState (resolved against cwd).
+      const cfgVal = config?.platforms?.web?.storageState as SS | undefined;
+      if (cfgVal !== undefined) {
+        if (typeof cfgVal === 'string') {
+          return path.isAbsolute(cfgVal) ? cfgVal : path.resolve(process.cwd(), cfgVal);
+        }
+        return cfgVal;
+      }
+      return undefined;
+    })(),
+    testFilePath: absoluteTarget,
     healing: healingEnabled ? {
       enabled: true,
       maxAttempts: config?.healing?.maxAttempts ?? test.config?.healing?.maxAttempts ?? 3,
@@ -2262,6 +2290,7 @@ const main = async (): Promise<void> => {
     .option('--session-id <id>', 'Override test session ID (used for tracking/cleanup)')
     .option('--track-dir <path>', 'Directory for tracking files (defaults to .intellitester/track)')
     .option('--test-sizes <sizes>', 'Viewport sizes to test (xs,sm,md,lg,xl comma-separated)')
+    .option('--storage-state <path>', 'Path to Playwright storageState JSON. Resolved against cwd. Overrides config.web.storageState.')
     .action(async (file: string | undefined, options: {
       visible?: boolean;
       browser?: string;
@@ -2274,6 +2303,7 @@ const main = async (): Promise<void> => {
       sessionId?: string;
       trackDir?: string;
       testSizes?: string;
+      storageState?: string;
     }) => {
       let previewCleanup: (() => void) | null = null;
       let trackingServer: TrackingServer | null = null;
@@ -2377,6 +2407,7 @@ const main = async (): Promise<void> => {
           sessionId,  // Use the sessionId we generated/set for tracking
           trackDir: options.trackDir,
           testSizes,
+          storageState: options.storageState,
           // When CLI sets up tracking, tell executors to skip their own setup
           skipTrackingSetup: cliOwnsTracking,
           skipWebServerStart: cliOwnsTracking,
@@ -2440,6 +2471,7 @@ const main = async (): Promise<void> => {
                 sessionId: options.sessionId,
                 trackDir: options.trackDir,
                 testSizes,
+                storageState: options.storageState,
               });
             } catch (error) {
               console.error(`\n❌ Test failed: ${path.basename(test)}`);
@@ -2512,6 +2544,7 @@ const main = async (): Promise<void> => {
                 sessionId: options.sessionId,
                 trackDir: options.trackDir,
                 testSizes,
+                storageState: options.storageState,
               });
             } catch (error) {
               console.error(`\n❌ Test failed: ${path.basename(test)}`);
@@ -2561,6 +2594,7 @@ const main = async (): Promise<void> => {
           sessionId: options.sessionId,
           trackDir: options.trackDir,
           testSizes,
+          storageState: options.storageState,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
