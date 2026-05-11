@@ -279,6 +279,38 @@ const saveStorageStateActionSchema = z.object({
     { message: 'saveStorageState requires either `path` or `handler`' },
   );
 
+const assertCookiesActionSchema = z.object({
+  type: z.literal('assertCookies'),
+  has: z.array(nonEmptyString).optional()
+    .describe('Cookie names that MUST be present in the context.'),
+  not: z.array(nonEmptyString).optional()
+    .describe('Cookie names that MUST NOT be present in the context.'),
+  match: z.record(z.string(), z.string()).optional()
+    .describe('Map of cookie name to value-matching pattern (substring by default; wrap in /.../ for regex).'),
+  url: nonEmptyString.optional()
+    .describe('Optional URL/origin filter passed to context.cookies(url).'),
+}).describe('Assert presence/absence (and optionally values) of cookies in the browser context. Sees HttpOnly cookies.')
+  .refine(
+    (a) => Boolean(a.has?.length) || Boolean(a.not?.length) || Boolean(a.match && Object.keys(a.match).length > 0),
+    { message: 'assertCookies requires at least one of `has`, `not`, or `match`' },
+  );
+
+const expectResponseActionSchema = z.object({
+  type: z.literal('expectResponse'),
+  url: nonEmptyString.describe('URL pattern: glob by default (** = any path, * = single segment), or /regex/ for regex.'),
+  status: z.number().int().min(100).max(599).optional()
+    .describe('Expected HTTP status code (exact match).'),
+  headers: z.record(z.string(), z.string()).optional()
+    .describe('Headers that must all match. Header name is case-insensitive. Values: substring match by default, or /regex/ for regex.'),
+  since: z.union([
+    z.literal('previousStep'),
+    z.literal('testStart'),
+    z.number(),
+  ]).optional().describe('Time window lower bound. Default: previousStep.'),
+  timeout: z.number().int().positive().optional()
+    .describe('Max wait in ms for a matching response (default 5000).'),
+}).describe('Assert that a network response matching the given URL/status/headers was seen since `since`.');
+
 // Base action schema without conditional (used for nested steps in conditional)
 const BaseActionSchema = z.discriminatedUnion('type', [
   navigateActionSchema,
@@ -297,6 +329,8 @@ const BaseActionSchema = z.discriminatedUnion('type', [
   scrollActionSchema,
   screenshotActionSchema,
   saveStorageStateActionSchema,
+  assertCookiesActionSchema,
+  expectResponseActionSchema,
   setVarActionSchema,
   emailWaitForActionSchema,
   emailExtractCodeActionSchema,
