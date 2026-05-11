@@ -54,6 +54,10 @@ inputs:
     description: 'Viewport sizes to test (xs,sm,md,lg,xl comma-separated)'
     required: false
     default: ''
+  timeout-minutes:
+    description: 'Maximum time in minutes for the Run Intellitester step before the cleanup safety net takes over'
+    required: false
+    default: '30'
 
 runs:
   using: 'composite'
@@ -305,6 +309,7 @@ runs:
     - name: Run Intellitester
       shell: bash
       working-directory: ${{ inputs.working-directory }}
+      timeout-minutes: ${{ fromJSON(inputs.timeout-minutes) }}
       run: |
         npx intellitester run \
           ${{ inputs.test-file }} \
@@ -313,3 +318,18 @@ runs:
           ${{ inputs.fresh-build == 'true' && '--fresh-build' || '' }} \
           ${{ inputs.test-sizes != '' && format('--test-sizes {0}', inputs.test-sizes) || '' }} \
           --browser ${{ inputs.browser }}
+
+    - name: Cleanup safety net
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      continue-on-error: true
+      run: |
+        # Retry any cleanup operations Intellitester recorded but couldn't finish
+        # (e.g., the main step timed out before its finally block could run).
+        if [ -d .intellitester/cleanup/failed ] && [ -n "$(ls -A .intellitester/cleanup/failed 2>/dev/null)" ]; then
+          echo "Found pending failed cleanups — retrying..."
+          npx intellitester cleanup:retry || echo "cleanup:retry exited non-zero; some resources may need manual cleanup"
+        else
+          echo "No failed cleanups to retry."
+        fi
