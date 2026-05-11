@@ -48,6 +48,8 @@ export interface WebRunOptions {
   testSizes?: string[];
   /** Playwright storageState (cookies/localStorage) to apply on every new context. File path string or inline {cookies, origins} object. */
   storageState?: BrowserContextOptions['storageState'];
+  /** Absolute path to the test YAML file. Used to resolve relative paths in saveStorageState actions. */
+  testFilePath?: string;
   /** Skip tracking server setup (CLI already owns it) */
   skipTrackingSetup?: boolean;
   /** Skip web server start (CLI already owns it) */
@@ -88,6 +90,20 @@ interface ExecutionContext {
 }
 
 const defaultScreenshotDir = path.join(process.cwd(), 'artifacts', 'screenshots');
+
+/**
+ * Resolve a Playwright storageState value against a base directory.
+ * - String paths: returned as-is if absolute, else joined with baseDir.
+ * - Inline {cookies, origins} objects: returned unchanged.
+ * - Undefined: returned unchanged.
+ */
+export const resolveStorageStatePath = (
+  value: BrowserContextOptions['storageState'] | undefined,
+  baseDir: string,
+): BrowserContextOptions['storageState'] | undefined => {
+  if (typeof value !== 'string') return value;
+  return path.isAbsolute(value) ? value : path.resolve(baseDir, value);
+};
 
 const interpolateTrackMetadata = (
   value: unknown,
@@ -1735,13 +1751,16 @@ export const runWebTest = async (
             try {
               if (saveAction.path) {
                 const resolvedPath = interpolateVariables(saveAction.path, executionContext.variables);
-                await page.context().storageState({ path: resolvedPath });
+                const baseDir = options.testFilePath ? path.dirname(options.testFilePath) : process.cwd();
+                const absPath = path.isAbsolute(resolvedPath) ? resolvedPath : path.resolve(baseDir, resolvedPath);
+                await page.context().storageState({ path: absPath });
                 if (debugMode) {
-                  console.log(`[DEBUG] Saved storage state to ${resolvedPath}`);
+                  console.log(`[DEBUG] Saved storage state to ${absPath}`);
                 }
               } else if (saveAction.handler) {
                 const resolvedHandler = interpolateVariables(saveAction.handler, executionContext.variables);
-                const absPath = path.isAbsolute(resolvedHandler) ? resolvedHandler : path.resolve(process.cwd(), resolvedHandler);
+                const baseDir = options.testFilePath ? path.dirname(options.testFilePath) : process.cwd();
+                const absPath = path.isAbsolute(resolvedHandler) ? resolvedHandler : path.resolve(baseDir, resolvedHandler);
                 // Match cleanup loader pattern: prefer .js sibling if a .ts path is given and the .js exists
                 let loadPath = absPath;
                 if (absPath.endsWith('.ts')) {

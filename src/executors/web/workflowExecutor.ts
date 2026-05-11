@@ -17,6 +17,7 @@ import { loadTestDefinition } from '../../core/loader';
 import { InbucketClient } from '../../integrations/email/inbucketClient';
 import type { Email } from '../../integrations/email/types';
 import { getBrowserLaunchOptions, parseViewportSize } from './browserOptions.js';
+import { resolveStorageStatePath } from './playwrightExecutor.js';
 import {
   createTestContext,
   APPWRITE_PATTERNS,
@@ -40,14 +41,14 @@ import { evaluate, terminateOCRWorker } from '../../ai/evaluator';
  * Options for running a workflow.
  * Extends base ExecutorOptions with workflow-specific options.
  */
-export interface WorkflowOptions extends ExecutorOptions {
+export interface WorkflowOptions extends Omit<ExecutorOptions, 'storageState'> {
   /** AI configuration for interactive/healing mode */
   aiConfig?: AIConfig;
   /** Web server configuration */
   webServer?: WebServerConfig;
   /** Fallback baseUrl from pipeline config */
   baseUrl?: string;
-  /** Playwright storageState (cookies/localStorage) to apply on every new context. File path string or inline {cookies, origins} object. */
+  /** Playwright storageState (cookies/localStorage) to apply on every new context. File path string or inline {cookies, origins} object. CLI flag is string-only; YAML config can be either. */
   storageState?: BrowserContextOptions['storageState'];
 }
 
@@ -157,7 +158,8 @@ async function runTestInWorkflow(
   page: Page,
   context: ExecutionContext,
   options: WorkflowOptions,
-  _workflowDir: string,
+  workflowDir: string,
+  testFilePath: string,
   workflowBaseUrl?: string
 ): Promise<{ status: 'passed' | 'failed'; steps: StepResult[] }> {
   const results: StepResult[] = [];
@@ -368,13 +370,16 @@ async function runTestInWorkflow(
             const saveAction = action as Extract<Action, { type: 'saveStorageState' }>;
             if (saveAction.path) {
               const resolvedPath = interpolate(saveAction.path);
-              await page.context().storageState({ path: resolvedPath });
+              const baseDir = path.dirname(testFilePath);
+              const absPath = path.isAbsolute(resolvedPath) ? resolvedPath : path.resolve(baseDir, resolvedPath);
+              await page.context().storageState({ path: absPath });
               if (debugMode) {
-                console.log(`  [DEBUG] Saved storage state to ${resolvedPath}`);
+                console.log(`  [DEBUG] Saved storage state to ${absPath}`);
               }
             } else if (saveAction.handler) {
               const resolvedHandler = interpolate(saveAction.handler);
-              const absPath = path.isAbsolute(resolvedHandler) ? resolvedHandler : path.resolve(process.cwd(), resolvedHandler);
+              const baseDir = path.dirname(testFilePath);
+              const absPath = path.isAbsolute(resolvedHandler) ? resolvedHandler : path.resolve(baseDir, resolvedHandler);
               let loadPath = absPath;
               if (absPath.endsWith('.ts')) {
                 const jsPath = absPath.replace(/\.ts$/, '.js');
@@ -821,7 +826,7 @@ async function runTestInWorkflow(
                 }
               } else if (typeof branch === 'object' && 'workflow' in branch) {
                 // Workflow reference - load and execute
-                const workflowPath = path.resolve(_workflowDir, branch.workflow);
+                const workflowPath = path.resolve(workflowDir, branch.workflow);
                 if (debugMode) {
                   console.log(`  [DEBUG] waitForBranch: loading workflow from ${workflowPath}`);
                 }
@@ -855,6 +860,7 @@ async function runTestInWorkflow(
                     context,
                     options,
                     path.dirname(workflowPath),
+                    testFilePath,
                     nestedWorkflow.config?.web?.baseUrl ?? workflowBaseUrl
                   );
 
@@ -1218,7 +1224,7 @@ export async function runWorkflowWithContext(
         console.log(`  [DEBUG]   - workflow.config?.web?.baseUrl: ${workflow.config?.web?.baseUrl ?? '(undefined)'}`);
         console.log(`  [DEBUG]   - options.baseUrl: ${options.baseUrl ?? '(undefined)'}`);
       }
-      const result = await runTestInWorkflow(test, page, executionContext, options, workflowDir, effectiveBaseUrl);
+      const result = await runTestInWorkflow(test, page, executionContext, options, workflowDir, testFilePath, effectiveBaseUrl);
 
       const testResult: WorkflowTestResult = {
         id: testRef.id,
@@ -1516,8 +1522,15 @@ export async function runWorkflow(
   let _lastCleanupResult: { success: boolean; deleted: string[]; failed: string[] } | undefined;
 
   // Create browser context (will be replaced for each size)
-  const storageState: BrowserContextOptions['storageState'] =
-    options.storageState ?? (workflow.config?.web?.storageState as BrowserContextOptions['storageState']);
+  // CLI flag (string only) resolves against cwd; YAML config resolves against the workflow file dir.
+  const cliStorageState = typeof options.storageState === 'string'
+    ? (path.isAbsolute(options.storageState) ? options.storageState : path.resolve(process.cwd(), options.storageState))
+    : options.storageState;
+  const storageState: BrowserContextOptions['storageState'] | undefined =
+    cliStorageState ?? resolveStorageStatePath(
+      workflow.config?.web?.storageState as BrowserContextOptions['storageState'],
+      workflowDir,
+    );
   let browserContext = await browser.newContext({
     viewport: viewportSizes[0].viewport,
     ...(storageState ? { storageState } : {}),

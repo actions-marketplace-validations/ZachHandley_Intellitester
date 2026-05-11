@@ -26,6 +26,8 @@ export interface ExecutorOptions {
   trackDir?: string;
   /** Viewport sizes to test at */
   testSizes?: ViewportSize[];
+  /** Playwright storageState path (file with cookies/localStorage). Overrides YAML config.web.storageState. */
+  storageState?: string;
   /** Skip tracking setup (reuse from parent context) */
   skipTrackingSetup?: boolean;
   /** Skip web server start (reuse from parent context) */
@@ -51,6 +53,8 @@ export interface CLIRunOptions {
   trackDir?: string;
   /** Viewport sizes to test (string array from CLI) */
   testSizes?: string[];
+  /** Playwright storageState path from --storage-state flag */
+  storageState?: string;
   /** Skip tracking setup */
   skipTrackingSetup?: boolean;
   /** Skip web server start */
@@ -70,6 +74,7 @@ export function mapCLIToExecutorOptions(cli: CLIRunOptions): ExecutorOptions {
     sessionId: cli.sessionId,
     trackDir: cli.trackDir,
     testSizes: cli.testSizes as ViewportSize[] | undefined,
+    storageState: cli.storageState,
     skipTrackingSetup: cli.skipTrackingSetup,
     skipWebServerStart: cli.skipWebServerStart,
   };
