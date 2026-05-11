@@ -18,6 +18,8 @@ import { InbucketClient } from '../../integrations/email/inbucketClient';
 import type { Email } from '../../integrations/email/types';
 import { getBrowserLaunchOptions, parseViewportSize } from './browserOptions.js';
 import { resolveStorageStatePath } from './playwrightExecutor.js';
+import { compileMatcher } from './matchers.js';
+import { ResponseLog } from './responseLog.js';
 import {
   createTestContext,
   APPWRITE_PATTERNS,
@@ -185,6 +187,11 @@ async function runTestInWorkflow(
     return interpolateVariables(value, context.variables);
   };
 
+  // Network response log for `expectResponse` action — fresh per test.
+  const responseLog = new ResponseLog();
+  responseLog.attach(page);
+  let lastStepEndTs = Date.now();
+
   const resolveLocator = (locator: any) => {
     if (locator.testId) return page.getByTestId(locator.testId);
     if (locator.text) return page.getByText(locator.text);
@@ -224,6 +231,7 @@ async function runTestInWorkflow(
 
   try {
     for (const [index, action] of test.steps.entries()) {
+      lastStepEndTs = Date.now();
       if (debugMode) {
         console.log(`  [DEBUG] Step ${index + 1}: ${action.type}`);
       }
@@ -415,6 +423,109 @@ async function runTestInWorkflow(
             if (trackedPayload) {
               await trackResource(trackedPayload);
             }
+            break;
+          }
+          case 'assertCookies': {
+            const cookieAction = action as Extract<Action, { type: 'assertCookies' }>;
+            const filterUrl = cookieAction.url ? interpolate(cookieAction.url) : undefined;
+            const jar = await page.context().cookies(filterUrl);
+            const names = new Set(jar.map((c) => c.name));
+            const problems: string[] = [];
+
+            if (cookieAction.has) {
+              for (const name of cookieAction.has) {
+                if (!names.has(name)) problems.push(`expected cookie "${name}" to be present`);
+              }
+            }
+            if (cookieAction.not) {
+              for (const name of cookieAction.not) {
+                if (names.has(name)) problems.push(`expected cookie "${name}" to be absent`);
+              }
+            }
+            if (cookieAction.match) {
+              for (const [name, pattern] of Object.entries(cookieAction.match)) {
+                const c = jar.find((entry) => entry.name === name);
+                if (!c) {
+                  problems.push(`expected cookie "${name}" to be present (for value match)`);
+                  continue;
+                }
+                const matcher = compileMatcher(interpolate(pattern), 'substr');
+                if (!matcher(c.value)) {
+                  problems.push(`cookie "${name}" value "${c.value}" did not match pattern "${pattern}"`);
+                }
+              }
+            }
+            if (problems.length > 0) {
+              throw new Error(`assertCookies failed:\n  - ${problems.join('\n  - ')}\n  (cookies seen: ${[...names].join(', ') || '<none>'})`);
+            }
+            results.push({ action, status: 'passed' });
+            break;
+          }
+
+          case 'expectResponse': {
+            const respAction = action as Extract<Action, { type: 'expectResponse' }>;
+            const urlPattern = interpolate(respAction.url);
+            const urlMatch = compileMatcher(urlPattern, 'url');
+            const headerMatchers = respAction.headers
+              ? Object.entries(respAction.headers).map(([name, pattern]) => ({
+                  name: name.toLowerCase(),
+                  test: compileMatcher(interpolate(pattern), 'substr'),
+                  pattern,
+                }))
+              : [];
+            const expectedStatus = respAction.status;
+
+            let sinceTs: number;
+            if (respAction.since === 'testStart') {
+              sinceTs = 0;
+            } else if (typeof respAction.since === 'number') {
+              sinceTs = respAction.since;
+            } else {
+              sinceTs = lastStepEndTs;
+            }
+
+            const timeout = respAction.timeout ?? 5000;
+            const deadline = Date.now() + timeout;
+
+            const findMatch = () => {
+              for (const entry of responseLog.snapshot()) {
+                if (entry.ts < sinceTs) continue;
+                if (!urlMatch(entry.url)) continue;
+                if (expectedStatus !== undefined && entry.status !== expectedStatus) continue;
+                let headersOk = true;
+                for (const h of headerMatchers) {
+                  const value = entry.headers[h.name];
+                  if (value === undefined || !h.test(value)) {
+                    headersOk = false;
+                    break;
+                  }
+                }
+                if (headersOk) return entry;
+              }
+              return null;
+            };
+
+            let match = findMatch();
+            while (!match && Date.now() < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              match = findMatch();
+            }
+
+            if (!match) {
+              const recent = responseLog.snapshot().slice(-5).map((e) => `${e.status} ${e.url}`).join('\n  ');
+              throw new Error(
+                `expectResponse timed out after ${timeout}ms.\n` +
+                `  url pattern: ${urlPattern}\n` +
+                (expectedStatus !== undefined ? `  expected status: ${expectedStatus}\n` : '') +
+                (headerMatchers.length > 0 ? `  expected headers: ${headerMatchers.map((h) => `${h.name}=${h.pattern}`).join(', ')}\n` : '') +
+                `  recent responses:\n  ${recent || '<none>'}`
+              );
+            }
+
+            if (debugMode) {
+              console.log(`  [DEBUG] expectResponse matched: ${match.status} ${match.url}`);
+            }
+            results.push({ action, status: 'passed' });
             break;
           }
           case 'setVar': {
