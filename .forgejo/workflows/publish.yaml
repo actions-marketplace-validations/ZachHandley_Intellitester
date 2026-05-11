@@ -63,7 +63,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+        uses: https://forge.blackleafdigital.com/Public/actions/setup-pnpm@main
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          store-dir: ~/.local/share/pnpm/store
 
       - name: Configure npm auth
         run: |

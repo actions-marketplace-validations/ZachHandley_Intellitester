@@ -74,6 +74,10 @@ function formatActionName(step: StepResult, index: number): string {
       return `step-${index + 1}: evaluate`;
     case 'saveStorageState':
       return `step-${index + 1}: save storage state`;
+    case 'assertCookies':
+      return `step-${index + 1}: assert cookies`;
+    case 'expectResponse':
+      return `step-${index + 1}: expect response ${action.url}`;
     default: {
       const _exhaustiveCheck: never = action;
       return `step-${index + 1}: unknown action`;
